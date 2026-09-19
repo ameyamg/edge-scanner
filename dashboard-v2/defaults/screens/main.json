@@ -1,0 +1,236 @@
+{
+  "id": "main",
+  "name": "Main",
+  "version": 1,
+  "createdAt": "2026-09-04T00:00:00Z",
+  "updatedAt": "2026-09-04T00:00:00Z",
+  "locked": false,
+  "layout": [
+    {
+      "i": "clock1",
+      "x": 0,
+      "y": 0,
+      "w": 1,
+      "h": 0.0464,
+      "z": 1,
+      "minW": 0.3312,
+      "minH": 0.0464,
+      "maxH": 0.0464
+    },
+    {
+      "i": "chart1",
+      "x": 0,
+      "y": 0.0502,
+      "w": 0.4984,
+      "h": 0.3476,
+      "z": 2,
+      "minW": 0.2477,
+      "minH": 0.1468
+    },
+    {
+      "i": "chart2",
+      "x": 0.5016,
+      "y": 0.0502,
+      "w": 0.4984,
+      "h": 0.3476,
+      "z": 3,
+      "minW": 0.2477,
+      "minH": 0.1468
+    },
+    {
+      "i": "alerts1",
+      "x": 0,
+      "y": 0.4015,
+      "w": 0.7484,
+      "h": 0.2974,
+      "z": 4,
+      "minW": 0.2477,
+      "minH": 0.1217
+    },
+    {
+      "i": "top1",
+      "x": 0.7523,
+      "y": 0.4015,
+      "w": 0.2477,
+      "h": 0.2974,
+      "z": 5,
+      "minW": 0.1641,
+      "minH": 0.1217
+    },
+    {
+      "i": "news1",
+      "x": 0,
+      "y": 0.7026,
+      "w": 0.3312,
+      "h": 0.2974,
+      "z": 6,
+      "minW": 0.2477,
+      "minH": 0.1217
+    },
+    {
+      "i": "info1",
+      "x": 0.3344,
+      "y": 0.7026,
+      "w": 0.2477,
+      "h": 0.2974,
+      "z": 7,
+      "minW": 0.1641,
+      "minH": 0.1217
+    },
+    {
+      "i": "check1",
+      "x": 0.5852,
+      "y": 0.7026,
+      "w": 0.4148,
+      "h": 0.2974,
+      "z": 8,
+      "minW": 0.1875,
+      "minH": 0.146
+    }
+  ],
+  "windows": {
+    "clock1": {
+      "id": "clock1",
+      "type": "clock",
+      "link": "none",
+      "muted": false,
+      "sound": {
+        "tone": "off",
+        "tts": false
+      },
+      "showSpy": true
+    },
+    "chart1": {
+      "id": "chart1",
+      "type": "chart",
+      "link": "red",
+      "muted": false,
+      "sound": {
+        "tone": "off",
+        "tts": false
+      },
+      "symbol": "SPY",
+      "timeframe": "5m",
+      "extended": false,
+      "overlays": {
+        "vwap": true,
+        "ema9": true,
+        "ema21": true,
+        "volume": true,
+        "sma50": false,
+        "sma100": false,
+        "sma200": false,
+        "pdHL": true,
+        "pmHL": true
+      }
+    },
+    "chart2": {
+      "id": "chart2",
+      "type": "chart",
+      "link": "red",
+      "muted": false,
+      "sound": {
+        "tone": "off",
+        "tts": false
+      },
+      "symbol": "SPY",
+      "timeframe": "1D",
+      "extended": false,
+      "overlays": {
+        "vwap": false,
+        "ema9": false,
+        "ema21": false,
+        "volume": true,
+        "sma50": true,
+        "sma100": true,
+        "sma200": true,
+        "pdHL": false,
+        "pmHL": false
+      }
+    },
+    "alerts1": {
+      "id": "alerts1",
+      "type": "scanner",
+      "title": "Alerts",
+      "link": "red",
+      "muted": false,
+      "sound": {
+        "tone": "ping",
+        "tts": false
+      },
+      "setups": [],
+      "direction": "all",
+      "minScore": 0,
+      "symbolFilter": "",
+      "columns": [
+        "time",
+        "symbol",
+        "dir",
+        "source",
+        "setup",
+        "trigger",
+        "price",
+        "stop",
+        "score",
+        "rvol",
+        "gap",
+        "warn"
+      ],
+      "rowTint": true,
+      "maxRows": 500,
+      "sources": []
+    },
+    "top1": {
+      "id": "top1",
+      "type": "toplist",
+      "link": "red",
+      "muted": false,
+      "sound": {
+        "tone": "off",
+        "tts": false
+      },
+      "list": "rvol",
+      "limit": 25,
+      "heat": true
+    },
+    "news1": {
+      "id": "news1",
+      "type": "news",
+      "link": "red",
+      "muted": false,
+      "sound": {
+        "tone": "off",
+        "tts": false
+      },
+      "mode": "linked",
+      "symbol": null,
+      "hours": 48,
+      "limit": 50,
+      "thumbnails": true
+    },
+    "info1": {
+      "id": "info1",
+      "type": "stockinfo",
+      "link": "red",
+      "muted": false,
+      "sound": {
+        "tone": "off",
+        "tts": false
+      },
+      "symbol": null
+    },
+    "check1": {
+      "id": "check1",
+      "type": "setupcheck",
+      "link": "red",
+      "muted": false,
+      "sound": {
+        "tone": "off",
+        "tts": false
+      },
+      "symbol": null,
+      "minutes": 5
+    }
+  },
+  "grid": 3
+}

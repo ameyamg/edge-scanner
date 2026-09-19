@@ -1,0 +1,434 @@
+# Edge Scanner - User Guide
+
+A real-time intraday stock scanner. It streams 1-minute bars for a universe of US stocks, keeps per-symbol
+state (VWAP, relative volume, relative strength vs SPY, prior-day and premarket levels, EMAs and more), and
+fires alerts when a setup's conditions are met. Alerts, charts, rankings and news are shown in a
+multi-window browser dashboard.
+
+---
+
+## Table of Contents
+
+1. [Requirements](#1-requirements)
+2. [First-Time Setup](#2-first-time-setup)
+3. [Running the Scanner](#3-running-the-scanner)
+4. [The Dashboard](#4-the-dashboard)
+5. [Setups](#5-setups)
+6. [Configuration](#6-configuration)
+7. [Scripts Reference](#7-scripts-reference)
+8. [Data and Files](#8-data-and-files)
+9. [For Developers: Alert Feed](#9-for-developers-alert-feed)
+10. [Troubleshooting](#10-troubleshooting)
+11. [Disclaimer](#11-disclaimer)
+
+---
+
+## 1. Requirements
+
+- **Python 3.11 or newer.**
+- **Node.js 20 or newer** (to build the dashboard once).
+- **An Alpaca account** (paper is fine) and its API keys. The scanner only reads market data; it never
+  places orders.
+- **Market data.** Set `ALPACA_FEED` in `.env`:
+  - `ALPACA_FEED=sip` (the default) is the full consolidated tape. It needs Alpaca's paid market data
+    subscription (Algo Trader Plus).
+  - `ALPACA_FEED=iex` is free, but it is a single exchange, so volume and relative volume read far lower
+    and volume-based setups fire much less. All default thresholds were set on SIP data.
+- Windows, macOS or Linux. Launchers are included for both: `start_scanner.bat` and
+  `restart_scanner.bat` on Windows, `start_scanner.sh` on macOS and Linux.
+
+All times shown by the scanner are **US Eastern**.
+
+---
+
+## 2. First-Time Setup
+
+Do this once on a new machine.
+
+### Step 1: Install the Python packages
+
+Open a terminal in the project folder (ideally inside a virtual environment) and run:
+
+```
+pip install -r requirements.txt
+```
+
+### Step 2: Build the dashboard
+
+```
+npm --prefix dashboard-v2 install
+npm --prefix dashboard-v2 run build
+```
+
+This writes `dashboard-v2/dist`, which the scanner serves. Re-run the build after pulling dashboard
+changes; the scanner does not need a restart to pick up a new build.
+
+### Step 3: Add your Alpaca keys
+
+Copy `.env.example` to `.env` in the project folder and fill it in:
+
+```
+ALPACA_API_KEY=your_key_here
+ALPACA_SECRET_KEY=your_secret_here
+ALPACA_FEED=sip
+```
+
+Your keys are in the Alpaca dashboard under **API Keys**. Use `ALPACA_FEED=iex` if you do not have the SIP
+subscription (see [Requirements](#1-requirements)). The `.env` file is gitignored; never commit or share
+it.
+
+### Step 4: Run it
+
+```
+python scripts/run_live.py
+```
+
+The first run builds the symbol universe and downloads daily and 5-minute history for every symbol, which
+can take 10-20 minutes depending on the universe size. Later runs reuse the local cache and only fetch
+what is new.
+
+### Step 5 (optional): Install the sample setups
+
+With the scanner running, install the library of ready-made custom setups:
+
+```
+python scripts/install_setup_library.py
+```
+
+See [The sample setup library](#the-sample-setup-library).
+
+---
+
+## 3. Running the Scanner
+
+One command starts everything:
+
+```
+python scripts/run_live.py
+```
+
+Or use a launcher: double-click `start_scanner.bat` on Windows, or run `./start_scanner.sh` on macOS and
+Linux. Both scan `data/universe_all.csv` when it exists (otherwise `data/universe.csv`) and load 380 days
+of daily history; extra flags are passed through, for example `./start_scanner.sh --log-level INFO`.
+`restart_scanner.bat` stops a running scanner and starts it again.
+
+### What happens at startup
+
+1. **Universe**: loads `data/universe.csv`, rebuilding it when it is more than 7 days old.
+2. **Sector map**: maps symbols to their sector ETFs (refreshed weekly).
+3. **Daily history**: refreshes the daily bar cache.
+4. **Intraday history**: refreshes the 5-minute bar cache used for relative volume.
+5. **Warmup**: seeds every symbol's state from that history.
+6. **Live stream**: opens **one** Alpaca market-data WebSocket and starts scanning 1-minute bars.
+
+When it is live, open **http://localhost:7777** in a browser (it redirects to the dashboard at `/v2/`).
+
+### Stopping
+
+Press **Ctrl+C** once in the terminal. The scanner shuts down cleanly.
+
+### Useful flags
+
+| Flag | Default | Description |
+|---|---|---|
+| `--universe PATH` | `data/universe.csv` | Universe CSV to scan. An explicit file is used as is, with no age check or rebuild |
+| `--refresh-universe` | off | Force a universe rebuild even if it is fresh |
+| `--history-days N` | `60` | Calendar days of daily history. Use about 380 if you want 200-day averages and 52-week levels |
+| `--intraday-days N` | `20` | Days of 5-minute bars for the relative volume profile |
+| `--keep-days N` | `5` | Days of alerts kept on disk |
+| `--no-fundamentals` | off | Skip the background fundamentals prefetch for the Stock Info window |
+| `--log-level` | `WARNING` | `DEBUG`, `INFO` or `WARNING` |
+
+**Only one Alpaca stream per account.** Alpaca allows a single market-data WebSocket per account. Do not
+run two scanners (or another app that streams market data) on the same keys at the same time, or one of
+them will be disconnected.
+
+---
+
+## 4. The Dashboard
+
+The dashboard (branded **Edge Scanner**) is a desktop-style workspace of free-floating windows. Drag a
+window by its title bar, resize it from any edge, double-click the title bar to maximize, and hold `Alt`
+while dragging to turn off snapping.
+
+### Windows
+
+| Window | What it shows |
+|---|---|
+| **Scanner** | The live alert stream. Each window has its own filters: setups, direction, minimum score and symbols. Column picker, row tint, and a sound or text-to-speech per window |
+| **Chart** | Intraday and daily candles with extended hours, VWAP, EMAs, daily SMAs, prior-day and premarket levels |
+| **Rankings** | Ranked lists: RVOL leaders, gainers and losers (from the close or the open), 5-minute movers, premarket gainers, losers and volume, and a new high / low of day stream |
+| **News** | Market-wide news, or news for the linked symbol |
+| **Stock Info** | Live per-symbol state plus fundamentals |
+| **Watchlist** | Editable symbol lists with live columns |
+| **Clock** | Eastern time, session phase, market regime, SPY and feed health |
+| **Setup check** | For one symbol, what every setup did over the last few minutes and which condition passed or failed. Use it to answer "why did (or didn't) this alert fire?" |
+
+### Linking windows
+
+Give windows the same link color and they follow each other: click a symbol in a Scanner, Rankings or
+Watchlist window and every window of that color (chart, news, stock info, setup check) switches to it.
+
+### Screens
+
+A screen is a saved arrangement of windows. You can keep any number of named screens and switch between
+them from the top bar. Screens are saved automatically on the server (`data/layouts/`) and keep their
+proportions on any monitor size. A default screen is created on first run.
+
+### News sources
+
+The News window merges the Alpaca news wire (Benzinga) with keyless Yahoo Finance and Nasdaq per-symbol
+RSS feeds. When a symbol has no recent news, it widens the search to the last 30 days and says so. To
+change or disable the RSS sources, set `NEWS_RSS_SOURCES` in `.env`, for example `NEWS_RSS_SOURCES=yahoo`
+or `NEWS_RSS_SOURCES=` (empty) for Alpaca only.
+
+### Themes and shortcuts
+
+Two themes ship: a dark default and a light one. Shortcuts: `Ctrl+K` add a window, `Ctrl+L` lock or
+unlock the layout, `Ctrl+,` open Config, `Esc` close menus and dialogs.
+
+---
+
+## 5. Setups
+
+A **setup** is a named rule that fires an alert. Every alert says which setup fired, the direction (long
+or short), the trigger, the price and a score, plus the conditions it checked. Alerts also carry a
+suggested stop (the low of the last few 1-minute bars for a long, the high for a short; see `STOP_BARS` in
+[Configuration](#6-configuration)). The stop is information only; the scanner does not trade.
+
+Setups are **edge-triggered**: an alert fires on the bar where the setup first becomes true, not on every
+bar while it stays true, and the same symbol and setup do not repeat within a 5-minute cooldown.
+
+### Custom setups
+
+You compose setups yourself in the dashboard from three parts:
+
+- **Triggers** from the trigger catalog (`scanner/trigger_catalog.py`, about 50 of them): the moment worth
+  an alert, such as a cross above VWAP, a 5-minute breakout, a new high of day, a candle pattern, or
+  relative volume crossing a level. Combine several with OR, AND or AT LEAST logic.
+- **Parameters**: conditions that must hold when the trigger fires (for example gap of at least 2%,
+  relative volume above 1.5, price above VWAP).
+- **A universe filter**: which symbols the setup watches.
+
+Custom setup ids start with `cs_`.
+
+### The sample setup library
+
+A library of ready-made custom setups ships in `scanner/setup_library.json`. With the scanner running,
+install it with:
+
+```
+python scripts/install_setup_library.py
+```
+
+It only adds setups that are missing and never overwrites your edits (`--dry-run` shows what it would
+add). The library contains:
+
+**Long**
+
+| Setup | What it looks for |
+|---|---|
+| Gap Up on Volume | Gapped up hard on real volume. Fires on RVOL crossing 2x, a new high of day, or a 5-minute breakout |
+| Gap Up Holding | A gap up that is being bought: above VWAP with the last 15 minutes pointing up |
+| Gap Down Recovering | A gap down that is being bought back: above VWAP with 15-minute momentum, working on the fill |
+| Strong Stock Pullback | A daily leader that is weak this hour, turning back up: the pullback in a strong stock |
+| Relative Strength Rising | Relative strength vs SPY is positive and building over the last 15 minutes |
+| RS Leaders | The strongest names vs SPY over the past hour, on a daily chart that agrees, making a new push |
+| Above Prior Day Range | Trading above yesterday's entire range with volume: a breakout day in progress |
+| Testing Prior Day High | Pressing the high of day right at yesterday's high, before the breakout has happened |
+
+**Short**
+
+| Setup | What it looks for |
+|---|---|
+| Gap Down on Volume | Gapped down hard on real volume. Fires on RVOL crossing 2x, a new low of day, or a 5-minute breakdown |
+| Gap Up Fading | A gap up that is being sold: lost VWAP and the last 15 minutes are pointing down |
+| Gap Down Extending | A gap down that is still being sold: below VWAP, momentum down |
+| Weak Stock Bounce | A daily underperformer bouncing hard this hour, rolling back over: the rally you short |
+| Relative Strength Falling | Relative weakness vs SPY is negative and getting worse over the last 15 minutes |
+| RS Laggards | The weakest names vs SPY over the past hour, on a daily chart that agrees, making a new leg down |
+| Below Prior Day Range | Trading below yesterday's entire range with volume: a breakdown day in progress |
+| Testing Prior Day Low | Pressing the low of day right at yesterday's low, before the breakdown has happened |
+
+Each one is a normal custom setup afterwards: rename it, change its thresholds, or delete it. Open it in
+Config to see the exact triggers and parameters it uses.
+
+---
+
+## 6. Configuration
+
+Open **Config** from the top bar or with `Ctrl+,`. Changes apply on the next bar; no restart is needed.
+
+### Setups
+
+Create, edit, enable or disable custom setups, change their triggers and parameters, and assign each one
+a universe filter.
+
+### Settings
+
+A small set of shared settings that the setups and universe conditions read:
+
+| Setting | Default | What it does |
+|---|---|---|
+| `STOP_BARS` | `5` | Suggested stop = low (long) or high (short) of the last N 1-minute bars, including the signal bar |
+| `GATE_RVOL_MIN` | `1.00` | Minimum time-of-day relative volume for the relative volume gate |
+| `GATE_QUALITY_MIN` | `60` | Minimum chart-quality score (0-100): clean structure, not gappy or over-extended |
+| `GATE_VOID_MIN_PCT` | `1.0%` | Minimum clear air to the next 60-day level in the trade direction |
+| `GATE_RRS_WARMUP_5M_BARS` | `12` | 5-minute bars a symbol needs before a missing 5-minute relative strength blocks the gate (until then the daily figure is used) |
+| `GATE_MARKET_ALIGN_FROM` | `10:00` | The SPY market-alignment gate only applies from this time on |
+
+Each row shows its description, the default with a one-click reset, and today's pass rate for the gate
+it drives, so you can see which one is doing the blocking before you touch it.
+
+Settings are saved in `data/settings/` and loaded again at startup. **Presets** save the whole settings
+set under a name so you can switch back later, and every save, reset and preset apply is recorded in a
+change log (`data/settings/history.jsonl`).
+
+### Rankings
+
+Which universe filter each ranked list uses and how many rows it shows.
+
+### Universe filters
+
+Named symbol filters (for example price, average volume, dollar volume, ATR%) that setups and rankings
+point at. Three ship by default (`scanner/universe_profiles_defaults.json`):
+
+- **All symbols**: no filter; the default for every assignment.
+- **Liquid movers**: price at least $15, 20-day average volume at least 5M shares, dollar volume at least
+  $50M, ATR% at least 1.
+- **Small cap runners**: price at least $1, ATR% at least 4, float under 20M shares, relative volume at
+  least 3 and session volume at least 500K. The float figure comes from Yahoo Finance and can be stale.
+
+The defaults are only seeded on first run; after that, edit them in the dashboard. They are stored under
+`data/universe/profiles/`.
+
+### The base universe
+
+Filters narrow the base universe, the CSV the scanner streams. `scripts/build_universe.py` builds it from
+all active US equities (see [Scripts Reference](#7-scripts-reference)). A larger base universe gives the
+filters more to choose from but costs more CPU per minute and a longer first download.
+
+---
+
+## 7. Scripts Reference
+
+| Script | What it does |
+|---|---|
+| `scripts/run_live.py` | The live scanner (section 3) |
+| `scripts/build_universe.py` | Builds the base universe CSV. Called automatically by `run_live.py` when the default universe is over 7 days old |
+| `scripts/install_setup_library.py` | Installs the sample custom setups into a running scanner |
+| `scripts/fetch_history.py` | Seeds or refreshes the daily bar cache for a symbol list |
+| `start_scanner.bat`, `start_scanner.sh` | Launchers for Windows and for macOS / Linux (section 3) |
+| `restart_scanner.bat` | Stops a running scanner and starts it again (Windows) |
+
+### build_universe.py
+
+```
+python scripts/build_universe.py
+python scripts/build_universe.py --out data/universe_wide.csv --min-price 5 --min-avg-vol 1000000
+```
+
+| Flag | Default | Description |
+|---|---|---|
+| `--out` | `data/universe.csv` | Output CSV |
+| `--min-price` | `15.0` | Minimum last price ($) |
+| `--min-avg-vol` | `5000000` | Minimum 20-day average daily share volume |
+| `--min-dollar-vol-m` | `50.0` | Minimum 20-day average daily dollar volume (millions) |
+| `--min-atr-pct` | `1.0` | Minimum ATR% |
+| `--days` | `20` | Trading days used for the volume and ATR averages |
+
+To scan a universe other than the default, pass it to the scanner: `python scripts/run_live.py --universe
+data/universe_wide.csv`. A file passed this way is not rebuilt automatically, so rebuild it by hand when
+its numbers get stale.
+
+---
+
+## 8. Data and Files
+
+Everything the scanner writes lives under `data/` (gitignored).
+
+| Path | Contents |
+|---|---|
+| `data/universe.csv` | The default base universe |
+| `data/sector_map.csv` | Symbol to sector ETF map |
+| `data/daily/`, `data/5m/` | Bar caches |
+| `data/alerts/all/` | Every alert, one JSONL file per day |
+| `data/settings/` | Settings, presets and change log |
+| `data/setups/` | Custom setups and setup assignments |
+| `data/universe/profiles/` | Universe filters |
+| `data/layouts/` | Dashboard screens |
+| `data/watchlists.json` | Watchlists |
+
+Alert files older than 5 days are deleted at startup (change with `--keep-days`). Copy them elsewhere if
+you want a longer history.
+
+---
+
+## 9. For Developers: Alert Feed
+
+The scanner serves everything on port **7777**:
+
+- **REST API** under `/api/` (used by the dashboard). `GET /api/alerts` returns recent alerts, newest
+  first, and takes the same filters as the WebSocket plus `limit`.
+- **Alert WebSocket**: `ws://localhost:7777/ws/alerts`. Every alert, each with a `source` field (`custom`
+  for custom setups). Filter with query parameters:
+
+  | Parameter | Example |
+  |---|---|
+  | `sources` | `custom` |
+  | `setups` | a custom setup id (`cs_...`), comma-separated for several |
+  | `triggers` | `hod_breakout` |
+  | `symbols` | `NVDA,AAPL` |
+  | `direction` | `long` or `short` |
+  | `min_score` | `50` |
+  | `custom` | custom setup ids |
+
+  Example: `ws://localhost:7777/ws/alerts?symbols=NVDA,AAPL&direction=long`
+
+  On connect the server sends one `{"type": "replay", "alerts": [...]}` frame with the recent alerts that
+  match your filter (newest first), then one `{"type": "alert", "alert": {...}}` frame per new alert.
+
+Custom setup ids are stable: renaming a setup in the dashboard changes only its display name.
+
+---
+
+## 10. Troubleshooting
+
+**The dashboard page is blank or returns 404.** The dashboard has not been built. Run
+`npm --prefix dashboard-v2 install` and `npm --prefix dashboard-v2 run build`, then reload.
+
+**Startup fails with an authorization or subscription error.** Check the keys in `.env`. If you do not
+have Alpaca's SIP subscription, set `ALPACA_FEED=iex`.
+
+**Almost nothing fires on the IEX feed.** Expected: IEX is one exchange, so volume and relative volume
+read far lower than on SIP. Lower the volume thresholds in your setups and filters, or use SIP.
+
+**The live stream keeps disconnecting, or another app lost its data.** Something else is streaming market
+data on the same Alpaca account. Alpaca allows one stream per account; stop the other one.
+
+**No alerts are firing.** Check that the market is open (Clock window), that you have setups enabled in
+Config (install the sample library if you have none), and that their universe filter includes the
+symbols you are watching. Then open a **Setup check** window on a symbol to see which condition is
+failing. Relative volume needs the 5-minute history from startup; if that step failed, restart the
+scanner.
+
+**A setup fires too often or too rarely.** Adjust its parameters in Config, or the shared settings; the
+pass rate next to each setting shows how restrictive it is today. Changes apply on the next bar.
+
+**200-day averages or 52-week levels are empty.** Daily history is too short. Run with
+`--history-days 380` (the launchers already do).
+
+**Startup is slow or the scanner falls behind during the session.** The universe is too large for the
+machine. Use a smaller universe CSV (see `build_universe.py` in section 7).
+
+**The Stock Info window has no fundamentals.** They load in the background after warmup and can take a few
+minutes. They are skipped when you run with `--no-fundamentals`.
+
+---
+
+## 11. Disclaimer
+
+This is educational software. It is not financial advice and does not recommend buying or selling any
+security. Alerts are the output of mechanical rules and can be wrong, late, or based on bad data. The
+software is provided "as is", without warranty of any kind (see the MIT license). You are solely
+responsible for your own trading decisions and their results.
