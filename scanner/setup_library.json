@@ -1183,6 +1183,69 @@
         }
       ],
       "notes": "Pressing the low of day right at yesterday's low. The breakdown has not happened yet."
+    },
+    {
+      "id": "cs_lib_volume_spike",
+      "name": "Volume Spike",
+      "color": "#f59e0b",
+      "enabled": true,
+      "mode": "or",
+      "direction": "all",
+      "sessions": [
+        "rth"
+      ],
+      "repeat_sec": 900,
+      "and_window_min": 1,
+      "size_hint": "half",
+      "triggers": [
+        {
+          "id": "volume_spike",
+          "options": [
+            "5"
+          ],
+          "params": {
+            "ratio": 3.0,
+            "lookback": 10.0
+          },
+          "repeat_sec": 0
+        }
+      ],
+      "notes": "A completed 5-min candle trades at least 3x the average volume of the previous 10 candles. A burst of volume right now, whatever the day looks like. Side is not implied: check the candle. At most once per stock every 15 min.",
+      "universe_profile": "up_liquid_movers",
+      "parameters": [],
+      "parameter_set": "",
+      "pending_filters": [],
+      "source": "library"
+    },
+    {
+      "id": "cs_lib_rvol_cross",
+      "name": "RVOL Crosses 2x",
+      "color": "#eab308",
+      "enabled": true,
+      "mode": "or",
+      "direction": "all",
+      "sessions": [
+        "rth"
+      ],
+      "repeat_sec": 0,
+      "and_window_min": 1,
+      "size_hint": "half",
+      "triggers": [
+        {
+          "id": "rvol_cross",
+          "options": [],
+          "params": {
+            "threshold": 2.0
+          },
+          "repeat_sec": 0
+        }
+      ],
+      "notes": "Day RVOL (volume so far against the 20-day average to this time of day) crosses above 2x. Fires once per crossing: the stock has become unusually active today.",
+      "universe_profile": "up_liquid_movers",
+      "parameters": [],
+      "parameter_set": "",
+      "pending_filters": [],
+      "source": "library"
     }
   ]
 }

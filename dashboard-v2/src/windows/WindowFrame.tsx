@@ -43,6 +43,15 @@ export function WindowFrame({ win, locked, maximized = false, onToggleMaximize }
   const Settings = def.settings
   const title = win.title || WINDOW_TITLES[win.type]
   const sub = def.subtitle?.(win, linkedSymbol)
+  // Click the title text to rename the window. The text is .wf-nodrag: the drag
+  // code captures the pointer, which would swallow the click. The rest of the bar drags.
+  const [renaming, setRenaming] = useState<string | null>(null)
+  const commitTitle = () => {
+    if (renaming == null) return
+    const t = renaming.trim()
+    updateWindow(win.id, { title: t && t !== WINDOW_TITLES[win.type] ? t : undefined })
+    setRenaming(null)
+  }
 
   return (
     <div className={`wf link-${win.link}`}>
@@ -50,7 +59,16 @@ export function WindowFrame({ win, locked, maximized = false, onToggleMaximize }
         {USES_LINK[win.type] && <LinkColorPicker value={win.link} onChange={(c: LinkColor) => updateWindow(win.id, { link: c })} />}
         <div className={locked ? 'wf-drag locked' : 'wf-drag'} title={locked ? 'Layout locked' : 'Drag to move · double-click to maximize'}>
           <span className="faint" style={{ fontSize: 11 }}>{WINDOW_ICONS[win.type]}</span>
-          <span className="wf-title">{title}</span>
+          {renaming != null ? (
+            <input className="wf-title-input wf-nodrag" autoFocus value={renaming} placeholder={WINDOW_TITLES[win.type]}
+              onChange={e => setRenaming(e.target.value)} onFocus={e => e.currentTarget.select()}
+              onPointerDown={e => e.stopPropagation()} onDoubleClick={e => e.stopPropagation()}
+              onBlur={commitTitle}
+              onKeyDown={e => { if (e.key === 'Enter') commitTitle(); if (e.key === 'Escape') { e.stopPropagation(); setRenaming(null) } }} />
+          ) : (
+            <span className="wf-title renamable wf-nodrag" title="Click to rename"
+              onDoubleClick={e => e.stopPropagation()} onClick={() => setRenaming(title)}>{title}</span>
+          )}
           {sub && <span className={`wf-sub${linkedSymbol && sub.text === linkedSymbol ? ' linked' : sub.strong ? ' strong' : ''}`} title={linkedSymbol && sub.text === linkedSymbol ? `Link group ${win.link}: ${linkedSymbol}` : undefined}>{sub.text}</span>}
         </div>
         {USES_SOUND[win.type] && (

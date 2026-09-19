@@ -26,7 +26,7 @@ export const WINDOW_SIZES: Record<WindowType, WindowSize> = {
   setupcheck: { w: 560, h: 420, minW: 360, minH: 180 },
 }
 
-export const SCANNER_DEFAULT_COLUMNS: string[] = ['time', 'symbol', 'dir', 'source', 'setup', 'trigger', 'price', 'stop', 'score', 'rvol', 'gap', 'warn']
+export const SCANNER_DEFAULT_COLUMNS: string[] = ['time', 'symbol', 'dir', 'setup', 'price', 'rvol', 'gap']
 
 /** Bring a saved scanner window up to date. Returns null when nothing changes.
  *
@@ -68,7 +68,8 @@ const base = (id: string, type: WindowType) => ({
 export function windowDefaults(type: WindowType, id: string): WindowConfig {
   switch (type) {
     case 'scanner':
-      return { ...base(id, 'scanner'), type: 'scanner', sources: [], setups: [], direction: 'all',
+      // A new window starts with no setups picked: it shows nothing until you choose.
+      return { ...base(id, 'scanner'), type: 'scanner', sources: [], setups: [], noSetups: true, direction: 'all',
         minScore: 0, symbolFilter: '', columns: SCANNER_DEFAULT_COLUMNS, rowTint: true, maxRows: 500 }
     case 'chart':
       return { ...base(id, 'chart'), type: 'chart', symbol: null, timeframe: '5m', extended: false,

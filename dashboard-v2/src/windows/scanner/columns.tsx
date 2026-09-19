@@ -45,10 +45,10 @@ const pct = (v: number | null, d = 2): ReactNode =>
 export const SCANNER_COLUMNS: Record<string, Column<Alert>> = {
   source: { id: 'source', label: 'Src', width: '40px', cell: a => <span className={`badge src-${sourceOf(a)}`} title={sourceOf(a)}>{SOURCE_SHORT[sourceOf(a)]}</span>, sortValue: a => sourceOf(a) },
   time: { id: 'time', label: 'Time', width: '52px', cell: a => <span className="mono dim" title={`bar ${fmtTimeET(a.timestamp)}-${fmtTimeET(barClose(a.timestamp))}`}>{fmtTimeET(barClose(a.timestamp))}</span>, sortValue: a => a.timestamp },
-  symbol: { id: 'symbol', label: 'Symbol', width: 'minmax(78px, 1fr)', cell: a => <span className="row" style={{ gap: 4 }}><span className="sym">{a.symbol}</span><SymbolActions symbol={a.symbol} /></span>, sortValue: a => a.symbol },
-  dir: { id: 'dir', label: 'Dir', width: '68px', cell: a => <DirBadge dir={a.direction} />, sortValue: a => a.direction },
+  symbol: { id: 'symbol', label: 'Symbol', width: '96px', cell: a => <span className="row" style={{ gap: 4 }}><span className="sym">{a.symbol}</span><SymbolActions symbol={a.symbol} /></span>, sortValue: a => a.symbol },
+  dir: { id: 'dir', label: 'Side', width: '68px', cell: a => <DirBadge dir={a.direction} />, sortValue: a => a.direction },
   price: { id: 'price', label: 'Price', width: '64px', num: true, cell: a => fmtPrice(a.price), sortValue: a => a.price },
-  setup: { id: 'setup', label: 'Setup', width: '96px', cell: a => <SetupBadge setup={a.setup} label={a.setup_label} color={a.setup_color} fallback={feedSetupName(a)} />, sortValue: a => a.setup_label ?? a.setup ?? feedSetupName(a) ?? '' },
+  setup: { id: 'setup', label: 'Setup', width: 'minmax(150px, 2fr)', cell: a => <SetupBadge setup={a.setup} label={a.setup_label} color={a.setup_color} fallback={feedSetupName(a)} />, sortValue: a => a.setup_label ?? a.setup ?? feedSetupName(a) ?? '' },
   tier: { id: 'tier', label: 'Tier', width: '40px', num: true, cell: a => (a.tier == null ? DASH : String(a.tier)), sortValue: a => a.tier ?? null },
   trigger: { id: 'trigger', label: 'Trigger', width: 'minmax(90px, 1.2fr)', cell: a => <span className="dim ellipsis" title={a.trigger_note ?? undefined}>{a.custom ? (a.trigger_note || a.trigger_label || a.entry_trigger) : (a.entry_trigger?.replace(/_/g, ' ') ?? a.trigger)}</span>, sortValue: a => a.trigger },
   score: { id: 'score', label: 'Score', width: '48px', num: true, cell: a => <b>{a.score}</b>, sortValue: a => a.score },
@@ -76,6 +76,8 @@ export function filterAlerts(alerts: Alert[], win: ScannerConfig, hasSystem = tr
   const q = win.symbolFilter.trim().toUpperCase()
   const sources = hasSystem ? win.sources : win.sources.filter(s => s !== 'system')
   const out: Alert[] = []
+  // Empty setups normally means all; a window with none picked yet shows nothing.
+  if (!win.setups.length && win.noSetups) return out
   for (const a of alerts) {
     if (sources.length && !sources.includes(sourceOf(a))) continue
     // setups filter: system setup codes and custom setup ids. Empty = all.

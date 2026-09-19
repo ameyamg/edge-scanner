@@ -467,7 +467,6 @@ export function SetupsPanel({ onClose }: { onClose(): void }) {
         <>
           <input type="color" className="cfg-color" value={current.color} onChange={e => edit({ color: e.target.value })} title="Badge color" />
           <input className="input cfg-name-input" placeholder="Setup name" value={current.name} onChange={e => edit({ name: e.target.value })} autoFocus={sel.kind === 'new'} />
-          {current.id && <span className="badge muted mono" title="Setup id on the feed (alert.setup)">{current.id}</span>}
           <label className={`chip${current.enabled ? ' on' : ''}`} style={{ cursor: 'pointer' }} title="Disabled setups are kept but never evaluated">
             <input type="checkbox" checked={current.enabled} onChange={e => edit({ enabled: e.target.checked })} style={{ marginRight: 4 }} />{current.enabled ? 'Enabled' : 'Disabled'}
           </label>

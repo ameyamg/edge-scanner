@@ -8,6 +8,7 @@ import { useScreens } from '../../stores/screensStore'
 import { linkAlert } from '../../stores/linkStore'
 import { VirtualTable } from '../../components/VirtualTable'
 import { ChipMultiSelect, ColumnPicker, Field, Select, Toggle } from '../../components/primitives'
+import { SettingsPopup } from '../../components/SettingsPopup'
 import { playTone, speak, spellSymbol } from '../../lib/audio'
 import { SCANNER_COLUMNS, SCANNER_COLUMN_LIST, filterAlerts, barClose } from './columns'
 import { DirBadge } from '../../components/Badge'
@@ -34,6 +35,75 @@ function SelectedStrip({ a, linked, onClear }: { a: Alert; linked: boolean; onCl
       <span className="flex-spacer" />
       {!linked && <span className="hint" title="Pick a link color on this window so a click drives a chart">not linked to a chart</span>}
       <button className="wf-ctl" title="Clear selection" onClick={onClear}>✕</button>
+    </div>
+  )
+}
+
+/** Setup options for the filter: built-in first by name, then custom (off ones marked). */
+function useSetupOptions() {
+  const customSetups = useSetups(s => s.custom)
+  const systemSetups = useSystemSetups()
+  return useMemo(() => [
+    ...systemSetups.map(s => ({ value: s.code, label: s.name || s.code })),
+    ...customSetups.map(c => ({ value: c.id, label: `${c.name}${c.enabled ? '' : ' (off)'}` })),
+  ].sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' })), [customSetups, systemSetups])
+}
+
+/** The filters you change most, on the window itself: setups, side, columns.
+ *  Everything else (sources, score, sound) stays behind the gear. */
+function ScannerToolbar({ win, shown }: { win: ScannerConfig; shown: number }) {
+  const [pop, setPop] = useState<{ kind: 'setups' | 'columns'; at: DOMRect } | null>(null)
+  const options = useSetupOptions()
+  const update = (patch: Partial<ScannerConfig>) => useScreens.getState().updateWindow(win.id, patch)
+  const open = (kind: 'setups' | 'columns') => (e: React.MouseEvent<HTMLButtonElement>) => {
+    const at = e.currentTarget.getBoundingClientRect()
+    setPop(p => (p?.kind === kind ? null : { kind, at }))
+  }
+  const picked = win.setups.length
+  const setupsLabel = picked
+    ? (picked === 1 ? (options.find(o => o.value === win.setups[0])?.label ?? '1 setup') : `${picked} setups`)
+    : win.noSetups ? 'None' : 'All'
+  return (
+    <div className="wf-toolbar scan-bar">
+      <button className={`btn sm${pop?.kind === 'setups' ? ' on' : ''}${!picked && win.noSetups ? ' attn' : ''}`} onClick={open('setups')} title="Which setups this window shows">
+        <span className="faint">Setups</span> <b className="ellipsis" style={{ maxWidth: 160 }}>{setupsLabel}</b> <span className="faint">▾</span>
+      </button>
+      <div className="seg" role="group" aria-label="Side">
+        {(['all', 'long', 'short'] as const).map(d => (
+          <button key={d} className={win.direction === d ? 'on' : ''} onClick={() => update({ direction: d })}>
+            {d === 'all' ? 'All' : d === 'long' ? '▲ Long' : '▼ Short'}
+          </button>
+        ))}
+      </div>
+      <button className={`btn sm${pop?.kind === 'columns' ? ' on' : ''}`} onClick={open('columns')} title="Choose and order the columns">
+        Columns <span className="faint">▾</span>
+      </button>
+      <span className="flex-spacer" />
+      <span className="faint mono" style={{ fontSize: 11 }}>{shown} shown</span>
+      {pop?.kind === 'setups' && (
+        <SettingsPopup title="Setups in this window" anchor={pop.at} onClose={() => setPop(null)}>
+          <div className="row" style={{ gap: 6, marginBottom: 8 }}>
+            <button className={`chip${!picked && !win.noSetups ? ' on' : ''}`} onClick={() => update({ setups: [], noSetups: false })} title="Every setup, including ones added later">All</button>
+            <button className={`chip${!picked && win.noSetups ? ' on' : ''}`} onClick={() => update({ setups: [], noSetups: true })}>None</button>
+          </div>
+          <div className="row wrap" style={{ gap: 4 }}>
+            {options.map(o => {
+              const on = win.setups.includes(o.value)
+              return (
+                <button key={o.value} className={`chip${on ? ' on' : ''}`}
+                  onClick={() => update({ setups: on ? win.setups.filter(x => x !== o.value) : [...win.setups, o.value], noSetups: true })}>
+                  {o.label}
+                </button>
+              )
+            })}
+          </div>
+        </SettingsPopup>
+      )}
+      {pop?.kind === 'columns' && (
+        <SettingsPopup title="Columns" anchor={pop.at} onClose={() => setPop(null)}>
+          <ColumnPicker value={win.columns} onChange={columns => update({ columns })} all={SCANNER_COLUMN_LIST} />
+        </SettingsPopup>
+      )}
     </div>
   )
 }
@@ -67,12 +137,15 @@ export function ScannerWindow({ win }: { win: ScannerConfig }) {
 
   const shownSources = win.sources.filter(s => visibleSources(hasSystem).includes(s))
   const what = shownSources.length ? shownSources.map(s => SOURCE_LABEL[s]).join(' + ') : 'any'
-  const empty: ReactNode = status === 'connected'
+  const empty: ReactNode = !win.setups.length && win.noSetups
+    ? 'No setups picked yet. Choose them with Setups ▾ above.'
+    : status === 'connected'
     ? (alerts.length ? 'No alerts match the filters' : `No ${what} alerts yet today`)
     : <span className="pulse">Connecting to the scanner feed…</span>
 
   return (
     <div className="alert-wrap">
+    <ScannerToolbar win={win} shown={rows.length} />
     {selected && <SelectedStrip a={selected} linked={win.link !== 'none'} onClear={() => setSelected(null)} />}
     <VirtualTable<Alert>
       rows={rows}
@@ -92,13 +165,7 @@ export function ScannerWindow({ win }: { win: ScannerConfig }) {
 
 export function ScannerSettings({ win, onChange }: { win: ScannerConfig; onChange(p: Partial<ScannerConfig>): void }) {
   const counts = useFeeds(s => s.counts)
-  const customSetups = useSetups(s => s.custom)
-  const systemSetups = useSystemSetups()
   const hasSystem = useCapabilities(s => s.system_setups)
-  const setupOptions = useMemo(() => [
-    ...systemSetups.map(s => ({ value: s.code, label: s.name || s.code })),
-    ...customSetups.map(c => ({ value: c.id, label: `${c.name}${c.enabled ? '' : ' (off)'}` })),
-  ].sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' })), [customSetups, systemSetups])
   const sources = visibleSources(hasSystem)
   const sourceOptions = sources.map(s => ({ value: s, label: `${SOURCE_LABEL[s]} (${counts[s]})` }))
   return (
@@ -110,15 +177,11 @@ export function ScannerSettings({ win, onChange }: { win: ScannerConfig; onChang
         </Field>
       )}
       <div className="grid2">
-        <Field label="Direction">
-          <Select value={win.direction} onChange={direction => onChange({ direction })} options={[{ value: 'all', label: 'All' }, { value: 'long', label: 'Long' }, { value: 'short', label: 'Short' }]} />
-        </Field>
         <Field label="Min score"><input className="input" type="number" min={0} max={100} value={win.minScore} onChange={e => onChange({ minScore: Number(e.target.value) || 0 })} /></Field>
         <Field label="Symbol filter"><input className="input mono" style={{ textTransform: 'uppercase' }} value={win.symbolFilter} placeholder="prefix" onChange={e => onChange({ symbolFilter: e.target.value })} /></Field>
         <Field label="Max rows"><input className="input" type="number" min={10} max={5000} value={win.maxRows} onChange={e => onChange({ maxRows: Math.max(10, Number(e.target.value) || 500) })} /></Field>
       </div>
-      <Field label="Setups"><ChipMultiSelect value={win.setups} onChange={setups => onChange({ setups })} options={setupOptions} /></Field>
-      <Field label="Columns"><ColumnPicker value={win.columns} onChange={columns => onChange({ columns })} all={SCANNER_COLUMN_LIST} /></Field>
+      <div className="faint" style={{ fontSize: 11 }}>Setups, side and columns are on the window's own bar.</div>
       <div className="grid2">
         <Field label="Sound">
           <Select<ToneName> value={win.sound.tone} onChange={tone => { onChange({ sound: { ...win.sound, tone } }); playTone(tone) }}

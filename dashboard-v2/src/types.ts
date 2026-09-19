@@ -86,6 +86,9 @@ export interface ScannerConfig extends WindowBase {
   /** producers to show; empty = every source. (The pre-unified-feed `feed` field is migrated away on load.) */
   sources: FeedId[]
   setups: string[]
+  /** With an empty `setups`: true = the user has picked none yet, so the window shows
+   *  nothing (a new window starts this way); false/absent = every setup (the old default). */
+  noSetups?: boolean
   /** @deprecated retired trigger filter; dropped by the screen migration, never read */
   triggers?: string[]
   direction: 'all' | 'long' | 'short'
