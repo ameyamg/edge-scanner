@@ -22,7 +22,10 @@ export function useFundamentals(symbol: string | null): Fundamentals | null {
         setFetched({ sym: symbol, data: d })
         if (d.ok || !d.pending) { fundCache.set(symbol, d); return }
       } catch { if (!alive) return }
-      if (++tries < 12) setTimeout(tick, 5000)
+      // Yahoo can rate-limit for up to 15 min; the server waits it out and fetches,
+      // so keep asking: every 5 s at first, then every 30 s for about 25 minutes.
+      tries++
+      if (tries < 60) setTimeout(tick, tries < 12 ? 5000 : 30000)
     }
     void tick()
     return () => { alive = false }

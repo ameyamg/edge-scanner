@@ -87,7 +87,7 @@ Changes apply on the next bar without a restart.
 - Two screens ship in `defaults/screens/` and are seeded on first run when no screens exist:
   **Pre-Market** (pre-market gainers, losers and volume rankings driving a pre-market chart, a
   daily chart, news and stock info) and **Price Action** (an Alerts scanner beside intraday and
-  daily charts and Setup Check, plus a second link group: RVOL leaders and 5-min movers driving a
+  daily charts and news, plus a second link group: RVOL leaders and 5-min movers driving a
   1-minute chart). Both stay available under Screens > Starter layouts.
 - Per-browser preferences (active screen, theme, hidden menu, global mute) live in `localStorage`.
 

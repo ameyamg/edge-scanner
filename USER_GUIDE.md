@@ -177,7 +177,7 @@ proportions on any monitor size. Two screens are created on first run:
 
 - **Pre-Market**: pre-market gainers, losers and volume rankings. Click a symbol and the pre-market
   chart, daily chart, news and stock info all follow it.
-- **Price Action**: an Alerts scanner beside intraday and daily charts and Setup Check (the red
+- **Price Action**: an Alerts scanner beside intraday and daily charts and News (the red
   link group), plus a second, independent group (blue): RVOL leaders and 5-min movers driving a
   1-minute chart. It shows how windows of any size sit side by side and how link groups keep
   two workflows apart.

@@ -41,6 +41,19 @@ export function StockInfoWindow({ win }: { win: StockInfoConfig }) {
       {s && !s.found && <Empty title={`${symbol} is not in the universe`}>Stock Info only covers scanned symbols.</Empty>}
       {s?.found && (
         <>
+          <div className="kv-sec">Fundamentals</div>
+          <div className="kv">
+            {f?.pending && !f.ok ? row('Status', <span className="pulse dim">fetching…</span>) : null}
+            {row('Sector', f?.sector ?? DASH)}
+            {row('Industry', <span className="ellipsis" style={{ maxWidth: 150, display: 'inline-block' }}>{f?.industry ?? DASH}</span>)}
+            {row('Market cap', fmtMoney(f?.market_cap))}
+            {row('Shares out', fmtVol(f?.shares_outstanding))}
+            {row('Float', fmtVol(f?.float_shares))}
+            {row('Short % float', f?.short_pct_float == null ? DASH : fmtPct(f.short_pct_float * 100, 1, false))}
+            {row('Short ratio', fmtNum(f?.short_ratio, 1))}
+            {row('Next earnings', f?.next_earnings ? <span className={earn != null && earn <= 5 ? 'down' : ''} style={{ fontWeight: earn != null && earn <= 5 ? 700 : 400 }}>{fmtDate(f.next_earnings)}{earn != null ? ` (${earn}d)` : ''}</span> : DASH)}
+            {f && !f.ok && !f.pending ? row('Note', <span className="faint" style={{ fontSize: 10 }}>{f.error ?? 'unavailable'}</span>) : null}
+          </div>
           <div className="kv-sec">Price</div>
           <div className="kv">
             {row('Last', <b>{fmtPrice(s.price)}</b>)}
@@ -74,19 +87,6 @@ export function StockInfoWindow({ win }: { win: StockInfoConfig }) {
             {row('RRS d1 / sector', `${fmtNum(s.rrs_d1, 1)} / ${fmtNum(s.rrs_sector_d1, 1)}`)}
             {row('Sector ETF', s.sector_etf ?? DASH)}
             {row('Chart quality', fmtNum(s.chart_quality, 1))}
-          </div>
-          <div className="kv-sec">Fundamentals</div>
-          <div className="kv">
-            {f?.pending && !f.ok ? row('Status', <span className="pulse dim">fetching…</span>) : null}
-            {row('Sector', f?.sector ?? DASH)}
-            {row('Industry', <span className="ellipsis" style={{ maxWidth: 150, display: 'inline-block' }}>{f?.industry ?? DASH}</span>)}
-            {row('Market cap', fmtMoney(f?.market_cap))}
-            {row('Shares out', fmtVol(f?.shares_outstanding))}
-            {row('Float', fmtVol(f?.float_shares))}
-            {row('Short % float', f?.short_pct_float == null ? DASH : fmtPct(f.short_pct_float * 100, 1, false))}
-            {row('Short ratio', fmtNum(f?.short_ratio, 1))}
-            {row('Next earnings', f?.next_earnings ? <span className={earn != null && earn <= 5 ? 'down' : ''} style={{ fontWeight: earn != null && earn <= 5 ? 700 : 400 }}>{fmtDate(f.next_earnings)}{earn != null ? ` (${earn}d)` : ''}</span> : DASH)}
-            {f && !f.ok && !f.pending ? row('Note', <span className="faint" style={{ fontSize: 10 }}>{f.error ?? 'unavailable'}</span>) : null}
           </div>
         </>
       )}

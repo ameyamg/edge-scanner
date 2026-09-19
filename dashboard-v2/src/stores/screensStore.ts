@@ -11,7 +11,7 @@ import priceAction from '../../defaults/screens/price-action.json'
  *  template is never applied over an existing one. */
 export const SCREEN_TEMPLATES = {
   'pre-market': { label: 'Pre-Market', desc: 'Pre-market gainers, losers and volume driving linked charts, news and stock info', screen: preMarket },
-  'price-action': { label: 'Price Action', desc: 'Alerts beside intraday and daily charts and Setup Check, plus a second link group of rankings and a 1-minute chart', screen: priceAction },
+  'price-action': { label: 'Price Action', desc: 'Alerts beside intraday and daily charts and News, plus a second link group of rankings and a 1-minute chart', screen: priceAction },
 } as const
 export type ScreenTemplate = keyof typeof SCREEN_TEMPLATES
 

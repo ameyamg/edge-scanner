@@ -37,14 +37,14 @@
       "minH": 0.1729
     },
     {
-      "i": "chk",
+      "i": "news1",
       "x": 0.764,
       "y": 0.364,
       "w": 0.236,
       "h": 0.636,
       "z": 4,
-      "minW": 0.1875,
-      "minH": 0.1729
+      "minW": 0.2188,
+      "minH": 0.1441
     },
     {
       "i": "rv",
@@ -156,18 +156,6 @@
         "pmHL": false
       }
     },
-    "chk": {
-      "id": "chk",
-      "type": "setupcheck",
-      "link": "red",
-      "muted": false,
-      "sound": {
-        "tone": "off",
-        "tts": false
-      },
-      "symbol": null,
-      "minutes": 5
-    },
     "rv": {
       "id": "rv",
       "type": "toplist",
@@ -220,6 +208,21 @@
         "pdHL": true,
         "pmHL": true
       }
+    },
+    "news1": {
+      "id": "news1",
+      "type": "news",
+      "link": "red",
+      "muted": false,
+      "sound": {
+        "tone": "off",
+        "tts": false
+      },
+      "mode": "linked",
+      "symbol": null,
+      "hours": 24,
+      "limit": 50,
+      "thumbnails": true
     }
   },
   "grid": 3
