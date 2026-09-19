@@ -61,7 +61,7 @@ log = logging.getLogger(__name__)
 _DEFAULT_UNIVERSE    = Path("data/universe.csv")
 _DEFAULT_SECTOR_MAP  = Path("data/sector_map.csv")
 _UNIVERSE_MAX_AGE_D  = 7     # rebuild universe if older than this many days
-_SECTOR_MAP_MAX_AGE_D = 7    # rebuild sector map if older than this many days
+_SECTOR_MAP_MAX_AGE_D = 7    # re-check a symbol's sector after this many days
 
 # yfinance sector name  →  SPDR sector ETF
 _SECTOR_ETF: dict[str, str] = {
@@ -105,7 +105,7 @@ def _step(n: int, total: int, msg: str) -> None:
 # Step 1: Universe
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _ensure_universe(force_refresh: bool, path: Path = _DEFAULT_UNIVERSE) -> list[str]:
+def _ensure_universe(force_refresh: bool, path: Path = _DEFAULT_UNIVERSE, provider: str = "alpaca") -> list[str]:
     # An explicitly named universe file is used as-is. It was built deliberately
     # with its own thresholds, so the age check and auto-rebuild (which would
     # regenerate it with the DEFAULT thresholds) must not apply to it.
@@ -119,7 +119,8 @@ def _ensure_universe(force_refresh: bool, path: Path = _DEFAULT_UNIVERSE) -> lis
         print(f"       Universe is {reason} --rebuilding (takes ~10s) ...", flush=True)
         import subprocess
         result = subprocess.run(
-            [sys.executable, "scripts/build_universe.py"],
+            # rebuilt with the same provider the session runs on
+            [sys.executable, "scripts/build_universe.py", "--provider", provider],
             capture_output=True, text=True,
         )
         if result.returncode != 0:
@@ -140,65 +141,87 @@ def _ensure_universe(force_refresh: bool, path: Path = _DEFAULT_UNIVERSE) -> lis
 # Step 2: Sector map
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _get_sector_yf(sym: str) -> tuple[str, Optional[str]]:
-    """Fetch sector string for one symbol via yfinance. Returns (sym, sector|None)."""
+def _get_sector_yf(sym: str) -> tuple[str, Optional[str], bool]:
+    """Sector for one symbol via yfinance: (sym, sector or None, lookup_ok).
+    lookup_ok is False on an error, so a failed lookup is retried next start
+    instead of being remembered as "no sector"."""
     try:
         import yfinance as yf
-        sector = yf.Ticker(sym).info.get("sector")
-        return sym, sector
+        return sym, yf.Ticker(sym).info.get("sector"), True
     except Exception:
-        return sym, None
+        return sym, None, False
 
 
-def _build_sector_map(symbols: list[str], max_workers: int = 20) -> dict[str, str]:
-    """Look up each symbol's sector via yfinance (parallel). Returns {sym: etf}."""
-    print(f"       Fetching sector data for {len(symbols)} symbols via yfinance", flush=True)
-    print(f"       (This runs once a week and takes ~30-60 seconds) ...", flush=True)
+# Yahoo rate-limits bursts, so each start looks up at most this many symbols
+# (about 2 minutes). A large new universe fills in over a few starts; the
+# symbols already mapped are used meanwhile.
+_SECTOR_LOOKUPS_PER_START = 1500
 
-    sector_map: dict[str, str] = {}
-    done = 0
-    with ThreadPoolExecutor(max_workers=max_workers) as ex:
-        futures = {ex.submit(_get_sector_yf, sym): sym for sym in symbols}
-        for fut in as_completed(futures):
-            sym, sector = fut.result()
-            if sector and sector in _SECTOR_ETF:
-                sector_map[sym] = _SECTOR_ETF[sector]
-            done += 1
-            if done % 100 == 0 or done == len(symbols):
-                pct = done * 100 // len(symbols)
-                print(f"       {pct:3d}%  ({done}/{len(symbols)} done, "
-                      f"{len(sector_map)} mapped so far) ...", flush=True)
 
-    return sector_map
+def _load_sector_rows() -> dict[str, dict]:
+    """{symbol: {"sector_etf": str, "checked": "YYYY-MM-DD"}} from the map file.
+    An empty sector_etf means "looked up, has no sector" (funds, units)."""
+    if not _DEFAULT_SECTOR_MAP.exists():
+        return {}
+    df = pd.read_csv(_DEFAULT_SECTOR_MAP, dtype=str, keep_default_na=False)
+    if "checked" not in df.columns:                  # older files: date = file date
+        df["checked"] = datetime.fromtimestamp(_DEFAULT_SECTOR_MAP.stat().st_mtime).strftime("%Y-%m-%d")
+    return {r.symbol: {"sector_etf": r.sector_etf, "checked": r.checked} for r in df.itertuples()}
 
 
 def _ensure_sector_map(symbols: list[str]) -> tuple[dict[str, str], list[str]]:
-    """Load or build the sector map. Returns (sector_map, list_of_sector_etfs)."""
-    age = _file_age_days(_DEFAULT_SECTOR_MAP)
-    if age > _SECTOR_MAP_MAX_AGE_D:
-        reason = "missing" if age == float("inf") else f"{age:.0f} days old"
-        print(f"       Sector map is {reason} --building now ...", flush=True)
-        sector_map = _build_sector_map(symbols)
-        if not sector_map:
-            print("       WARNING: Could not build sector map (yfinance returned no data).")
-            print("       The sector_rrs gate will block all alerts.")
-            print("       Try running again later or check your internet connection.")
-            return {}, []
-
+    """Load the sector map and top it up. Symbols never looked up come first,
+    then entries older than _SECTOR_MAP_MAX_AGE_D, capped per start.
+    Returns (sector_map for the universe, list_of_sector_etfs)."""
+    rows = _load_sector_rows()
+    today = date.today()
+    stale_before = (today - timedelta(days=_SECTOR_MAP_MAX_AGE_D)).isoformat()
+    missing = [s for s in symbols if s not in rows]
+    stale = [s for s in symbols if s in rows and rows[s]["checked"] < stale_before]
+    # Warrants, rights and units (5-letter tickers ending W / R / U) have no
+    # sector; look them up last so real stocks get mapped first.
+    derivative = lambda sym: len(sym) == 5 and sym[-1] in "WRU"
+    missing.sort(key=derivative)
+    todo = (missing + stale)[:_SECTOR_LOOKUPS_PER_START]
+    if todo:
+        left = len(missing) + len(stale) - len(todo)
+        print(f"       Looking up sectors for {len(todo)} symbols ({len(missing)} new, {len(stale)} due for "
+              f"refresh{f', {left} left for later starts' if left else ''}) ...", flush=True)
+        # Few workers and a circuit breaker: once Yahoo starts refusing (it
+        # rate-limits bursts), every further request fails too, so stop and
+        # leave the rest for the next start instead of burning through them.
+        done = failed = 0
+        recent: list[bool] = []
+        with ThreadPoolExecutor(max_workers=6) as ex:
+            futs = [ex.submit(_get_sector_yf, s) for s in todo]
+            for fut in as_completed(futs):
+                sym, sector, ok = fut.result()
+                done += 1
+                recent = (recent + [ok])[-50:]
+                if ok:
+                    rows[sym] = {"sector_etf": _SECTOR_ETF.get(sector or "", ""), "checked": today.isoformat()}
+                else:
+                    failed += 1
+                if done % 500 == 0 or done == len(todo):
+                    print(f"       {done}/{len(todo)} looked up ({failed} failed, retried next start)", flush=True)
+                if len(recent) == 50 and recent.count(False) > 25:
+                    for f in futs:
+                        f.cancel()
+                    print(f"       Yahoo is rate-limiting; stopped after {done} lookups, the rest continue "
+                          f"next start", flush=True)
+                    break
         _DEFAULT_SECTOR_MAP.parent.mkdir(parents=True, exist_ok=True)
-        rows = [{"symbol": sym, "sector_etf": etf} for sym, etf in sorted(sector_map.items())]
-        pd.DataFrame(rows).to_csv(_DEFAULT_SECTOR_MAP, index=False)
-        print(f"       Sector map saved: {len(sector_map)}/{len(symbols)} symbols mapped")
-    else:
-        df = pd.read_csv(_DEFAULT_SECTOR_MAP)
-        sector_map = dict(zip(df["symbol"].astype(str), df["sector_etf"].astype(str)))
-        # Keep only symbols currently in the universe
-        sector_map = {sym: etf for sym, etf in sector_map.items() if sym in set(symbols)}
-        print(f"       {len(sector_map)} symbols mapped (from {_DEFAULT_SECTOR_MAP}, "
-              f"{age:.0f}d old)")
+        out = pd.DataFrame([{"symbol": k, **v} for k, v in sorted(rows.items())],
+                           columns=["symbol", "sector_etf", "checked"])
+        out.to_csv(_DEFAULT_SECTOR_MAP, index=False)
 
-    sector_etfs = sorted(set(sector_map.values()))
-    return sector_map, sector_etfs
+    universe = set(symbols)
+    sector_map = {s: r["sector_etf"] for s, r in rows.items() if s in universe and r["sector_etf"]}
+    no_sector = sum(1 for s, r in rows.items() if s in universe and not r["sector_etf"])
+    unknown = sum(1 for s in symbols if s not in rows)
+    print(f"       {len(sector_map)}/{len(symbols)} symbols mapped to a sector ETF "
+          f"({no_sector} have no sector, {unknown} not looked up yet)", flush=True)
+    return sector_map, sorted(set(sector_map.values()))
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -312,8 +335,9 @@ def main() -> None:
                         help="Days of 5-min bars for RVOL (default: 20)")
     parser.add_argument("--keep-days",    type=int, default=5,
                         help="Days of session alerts to retain on disk (default: 5)")
-    parser.add_argument("--feed", choices=FEEDS, default="alpaca",
-                        help="Market data provider (default: alpaca)")
+    _provider = (os.environ.get("DATA_PROVIDER") or "alpaca").strip().lower()
+    parser.add_argument("--feed", choices=FEEDS, default=_provider if _provider in FEEDS else "alpaca",
+                        help="Market data provider (default: DATA_PROVIDER in .env, else alpaca)")
     parser.add_argument("--no-fundamentals", action="store_true",
                         help="Skip the Dashboard V2 yfinance fundamentals prefetch (background "
                              "thread after warmup; never blocks scanning).")
@@ -329,12 +353,15 @@ def main() -> None:
         format="%(asctime)s %(levelname)-8s %(name)s  %(message)s",
     )
 
-    _banner(f"Live Scanner  -- {date.today()}")
+    data_desc = args.feed.capitalize()
+    if args.feed == "alpaca":
+        data_desc += f" ({(os.environ.get('ALPACA_FEED') or 'sip').strip().upper()} feed)"
+    _banner(f"Live Scanner  -- {date.today()}   data: {data_desc}")
     TOTAL_STEPS = 6
 
     # ── 1. Universe ───────────────────────────────────────────────────────────
     _step(1, TOTAL_STEPS, "Universe")
-    symbols = _ensure_universe(args.refresh_universe, Path(args.universe))
+    symbols = _ensure_universe(args.refresh_universe, Path(args.universe), args.feed)
 
     # ── 2. Sector map ─────────────────────────────────────────────────────────
     _step(2, TOTAL_STEPS, "Sector map")
@@ -349,8 +376,8 @@ def main() -> None:
     _step(3, TOTAL_STEPS, f"Daily history  ({args.history_days} days)")
     feed = make_feed(args.feed)
     if args.feed != "alpaca":
-        print(f"       *** EXPERIMENTAL FEED: {args.feed} *** "
-              f"thresholds were derived on Alpaca SIP data", flush=True)
+        print(f"       Note: default thresholds were set on Alpaca SIP data; {args.feed} "
+              f"volumes can differ slightly", flush=True)
     elif os.environ.get("ALPACA_FEED", "sip").strip().lower() == "iex":
         print("       *** ALPACA_FEED=iex: free single-exchange data. Volume and RVOL read far "
               "lower than on SIP, so volume-based setups fire much less. ***", flush=True)
@@ -533,8 +560,10 @@ def main() -> None:
     _assigned = {k: v for k, v in profile_engine.assignments.load().items() if v != "up_all"}
     _assigned.update({s["id"]: s["universe_profile"] for s in custom_eval.plan.setups
                       if s.get("universe_profile")})
-    print(f"       Universe profiles: {len(profile_engine.compiled)} loaded, "
-          + (", ".join(f"{k}={v}" for k, v in sorted(_assigned.items()))
+    from collections import Counter
+    _per = Counter(_assigned.values())
+    print(f"       Universe profiles: {len(profile_engine.compiled)} loaded; "
+          + (", ".join(f"{pid} used by {n}" for pid, n in _per.most_common())
              if _assigned else "none assigned (inert)"))
 
     # ── 6. Connect ────────────────────────────────────────────────────────────

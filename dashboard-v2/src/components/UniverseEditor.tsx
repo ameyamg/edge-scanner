@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { ConditionDef, MembersResult, ProfileCondition, UniverseProfile } from '../types'
 import { api } from '../lib/api'
 import { useProfiles } from '../stores/profilesStore'
@@ -207,7 +207,7 @@ export function ConditionList({ conditions, kind, onChange, addLabel }: {
 
 // ── the profile editor ───────────────────────────────────────────────────────
 
-export function UniverseEditor({ profile, kind = 'universe', usedBy = [], onSaved, onDeleted }: {
+export function UniverseEditor({ profile, kind = 'universe', usedBy = [], onSaved, onDeleted, onDirtyChange }: {
   profile: UniverseProfile
   /** Which half of the catalog this list holds. A universe filter is static and
    *  resolves into a member set; a parameter set is dynamic and is evaluated
@@ -218,6 +218,8 @@ export function UniverseEditor({ profile, kind = 'universe', usedBy = [], onSave
   usedBy?: string[]
   onSaved?(p: UniverseProfile): void
   onDeleted?(): void
+  /** Lets the Config panel guard its close and navigation against unsaved filter edits. */
+  onDirtyChange?(dirty: boolean): void
 }) {
   const profiles = useProfiles()
   const [draft, setDraft] = useState<UniverseProfile>(profile)
@@ -235,6 +237,8 @@ export function UniverseEditor({ profile, kind = 'universe', usedBy = [], onSave
     () => JSON.stringify(draft.conditions) !== JSON.stringify(profile.conditions)
       || draft.name !== profile.name || draft.desc !== profile.desc,
     [draft, profile])
+  useEffect(() => { onDirtyChange?.(dirty) }, [dirty, onDirtyChange])
+  useEffect(() => () => onDirtyChange?.(false), [onDirtyChange])
 
   const isParams = kind === 'parameters'
   const isAll = draft.id === ALL_ID && !isParams

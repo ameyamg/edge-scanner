@@ -8,7 +8,7 @@ import { api } from '../lib/api'
 // alert carries `source` (system | custom); windows filter client-side.
 const host = window.location.hostname
 const pagePort = Number(window.location.port)
-const basePort = pagePort >= 7000 ? pagePort : 7777
+const basePort = pagePort >= 7000 ? pagePort : Number(import.meta.env.VITE_SCANNER_PORT || 7777)
 export const FEED_URL = `ws://${host}:${basePort}/ws/alerts?sources=all`
 export const SOURCES: FeedId[] = ['system', 'custom']
 export const SOURCE_LABEL: Record<FeedId, string> = { system: 'System setups', custom: 'Custom setups' }

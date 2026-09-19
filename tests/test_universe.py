@@ -88,3 +88,10 @@ def test_load_universe_path_as_string(tmp_path):
     p = _write_csv(tmp_path, "symbol\nAAPL\n")
     result = load_universe(str(p))
     assert result == ["AAPL"]
+
+
+def test_tickers_that_look_like_missing_values_are_kept(tmp_path):
+    """NA is a real ticker; pandas reads it as a missing value by default."""
+    p = tmp_path / "u.csv"
+    p.write_text("symbol,last_price" + chr(10) + chr(10).join(["AAPL,1", "NA,2", "NAN,3", "NULL,4", ",5"]) + chr(10), encoding="utf-8")
+    assert load_universe(p) == ["AAPL", "NA", "NAN", "NULL"]

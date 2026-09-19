@@ -18,7 +18,8 @@ export function SetupBadge({ setup, label, color, fallback }: { setup: string | 
 }
 
 export function DirBadge({ dir }: { dir: Alert['direction'] }) {
-  return <span className={`badge ${dir}`}>{dir === 'long' ? 'LONG' : dir === 'short' ? 'SHORT' : '—'}</span>
+  // Arrow + word + color: direction never depends on hue alone.
+  return <span className={`badge ${dir}`}>{dir === 'long' ? '▲ LONG' : dir === 'short' ? '▼ SHORT' : '-'}</span>
 }
 
 export function SizePill({ size }: { size?: string }) {

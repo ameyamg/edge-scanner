@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useScreens } from '../stores/screensStore'
+import { useScreens, SCREEN_TEMPLATES, type ScreenTemplate } from '../stores/screensStore'
 import { useSettings } from '../stores/settingsStore'
 import { useFeeds, visibleSources, SOURCE_LABEL, SOURCE_SHORT } from '../stores/feedsStore'
 import { useCapabilities } from '../stores/capabilitiesStore'
@@ -34,7 +34,7 @@ function ScreenSelector() {
   const screens = useScreens(s => s.screens)
   const order = useScreens(s => s.order)
   const activeId = useScreens(s => s.activeId)
-  const { setActive, createScreen, renameScreen, duplicateScreen, deleteScreen } = useScreens.getState()
+  const { setActive, createScreen, createFromTemplate, renameScreen, duplicateScreen, deleteScreen } = useScreens.getState()
   const [open, setOpen] = useState(false)
   const [renaming, setRenaming] = useState<string | null>(null)
   const [name, setName] = useState('')
@@ -75,6 +75,12 @@ function ScreenSelector() {
         })}
         <MenuSep />
         <MenuItem icon="+" onClick={() => { const n = prompt('New screen name', 'New screen'); if (n != null) { createScreen(n); setOpen(false) } }}>New screen</MenuItem>
+        <MenuHead>Starter layouts (added as a new screen)</MenuHead>
+        {(Object.keys(SCREEN_TEMPLATES) as ScreenTemplate[]).map(k => (
+          <MenuItem key={k} icon="▦" onClick={() => { createFromTemplate(k); setOpen(false) }}>
+            <span title={SCREEN_TEMPLATES[k].desc}>{SCREEN_TEMPLATES[k].label}</span>
+          </MenuItem>
+        ))}
       </Menu>
     </div>
   )

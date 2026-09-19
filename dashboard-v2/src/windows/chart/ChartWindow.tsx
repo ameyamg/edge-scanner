@@ -1,14 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   createChart, ColorType, CrosshairMode, LineStyle,
-  type IChartApi, type ISeriesApi, type IPriceLine, type UTCTimestamp,
+  type IChartApi, type ISeriesApi, type IPriceLine, type SeriesMarker, type UTCTimestamp,
 } from 'lightweight-charts'
 import type { Bar, ChartConfig, ChartOverlays, ChartTimeframe } from '../../types'
 import { api } from '../../lib/api'
 import { toSecET, isExtended, etDate } from '../../lib/time'
 import { calcEMA, calcSMA, pmHighLow, priorDayHL, type Pt } from '../../lib/chartMath'
 import { readChartPalette, THEME_EVENT, type ChartPalette } from '../../lib/theme'
-import { useLinkedSymbol, linkSymbol } from '../../stores/linkStore'
+import { useLinkedSymbol, useLinkedAlert, linkSymbol } from '../../stores/linkStore'
+import { useSetups } from '../../stores/setupsStore'
 import { useScreens } from '../../stores/screensStore'
 import { CompanyLogo, Empty, Field, SymbolInput, Toggle } from '../../components/primitives'
 import { useFundamentals } from '../../lib/useFundamentals'
@@ -68,26 +69,35 @@ const ts = (t: string) => toSecET(t) as UTCTimestamp
 
 export function ChartWindow({ win }: { win: ChartConfig }) {
   const symbol = useLinkedSymbol(win, win.symbol)
+  const selAlert = useLinkedAlert(win, symbol)
   const hostRef = useRef<HTMLDivElement>(null)
   const refs = useRef<Refs | null>(null)
   const fitKeyRef = useRef<string>('')
   const hadDataRef = useRef(false)
   const [dailyFor, setDailyFor] = useState<{ sym: string; bars: Bar[] } | null>(null)
   const daily = useMemo<Bar[]>(() => (symbol && dailyFor?.sym === symbol ? dailyFor.bars : []), [dailyFor, symbol])
-  const [error, setError] = useState<string | null>(null)
   const fund = useFundamentals(symbol)
   const tf: ChartTimeframe = TFS.includes(win.timeframe) ? win.timeframe : '5m'
   const session = SESSION_TFS.includes(tf)          // VWAP / EXT / PD / PM make sense
   const pollMs = session ? 30_000 : 120_000
 
-  const { data: bars } = usePoll(
-    async () => {
-      if (!symbol) return [] as Bar[]
-      try { const b = await api.bars(symbol, TF_API[tf]); setError(null); return b }
-      catch (e) { setError(e instanceof Error ? e.message : String(e)); return [] as Bar[] }
+  // Every response carries the symbol and frame it was fetched for. usePoll keeps
+  // its last result when the symbol changes, so without the key a slow fetch left
+  // the old stock's candles under the new stock's name. Only a matching response
+  // is drawn; until it arrives the chart is empty and says it is loading.
+  const dataKey = `${symbol}|${tf}`
+  const { data: resp } = usePoll(
+    async (): Promise<{ key: string; bars: Bar[]; error: string | null }> => {
+      const key = `${symbol}|${tf}`
+      if (!symbol) return { key, bars: [], error: null }
+      try { return { key, bars: await api.bars(symbol, TF_API[tf]), error: null } }
+      catch (e) { return { key, bars: [], error: e instanceof Error ? e.message : String(e) } }
     },
     pollMs, !!symbol, [symbol, tf],
   )
+  const current = resp?.key === dataKey ? resp : null
+  const bars = current?.bars ?? null
+  const error = current?.error ?? null
 
   useEffect(() => {
     if (!symbol) return
@@ -197,6 +207,21 @@ export function ChartWindow({ win }: { win: ChartConfig }) {
         addLevel(pm?.high, 'PMH', pal.pm); addLevel(pm?.low, 'PML', pal.pm)
       }
     }
+    // The alert selected in a linked Scanner window: an arrow on the bar that
+    // contains it (the 1-minute alert bar, or the 5m / daily bar holding it).
+    const markers: SeriesMarker<UTCTimestamp>[] = []
+    if (selAlert && visibleBars.length) {
+      const at = toSecET(selAlert.timestamp)
+      let bar: number | null = null
+      for (const b of visibleBars) { const t = toSecET(b.t); if (t <= at) bar = t; else break }
+      if (bar != null) {
+        const long = selAlert.direction === 'long'
+        const name = selAlert.setup_label || (selAlert.setup ? useSetups.getState().label(selAlert.setup) : '') || 'alert'
+        markers.push({ time: bar as UTCTimestamp, position: long ? 'belowBar' : 'aboveBar', shape: long ? 'arrowUp' : 'arrowDown', color: pal.accent, text: name })
+      }
+    }
+    r.candles.setMarkers(markers)
+
     // Fit only when a fresh data set arrives (new symbol/timeframe, or the first
     // bars after an empty state). Refreshes and overlay toggles must keep the
     // user's zoom and scroll position. Session frames open on the latest
@@ -212,7 +237,7 @@ export function ChartWindow({ win }: { win: ChartConfig }) {
       fitKeyRef.current = fitKey
     }
     hadDataRef.current = visibleBars.length > 0
-  }, [visibleBars, bars, daily, win.overlays, session, symbol, tf, win.extended])
+  }, [visibleBars, bars, daily, win.overlays, session, symbol, tf, win.extended, selAlert])
 
   const set = (patch: Partial<ChartConfig>) => useScreens.getState().updateWindow(win.id, patch)
   const toggleOverlay = (k: keyof ChartOverlays) => set({ overlays: { ...win.overlays, [k]: !win.overlays[k] } })
@@ -239,6 +264,7 @@ export function ChartWindow({ win }: { win: ChartConfig }) {
       <div style={{ flex: 1, position: 'relative', minHeight: 0 }}>
         <div ref={hostRef} className="chart-host" />
         {!symbol && <div style={{ position: 'absolute', inset: 0 }}><Empty title="No symbol">Pick a link color or type a symbol.</Empty></div>}
+        {symbol && !current && <div className="chart-loading pulse">Loading {symbol} {tf}…</div>}
         {symbol && error && <div style={{ position: 'absolute', top: 6, left: 8 }} className="down">{error}</div>}
         {symbol && bars && bars.length === 0 && !error && <div style={{ position: 'absolute', inset: 0 }}><Empty title={`No ${tf} bars for ${symbol}`}>{session ? 'Before 04:00 ET there is nothing to draw yet.' : 'Symbol may not have history for this frame.'}</Empty></div>}
       </div>

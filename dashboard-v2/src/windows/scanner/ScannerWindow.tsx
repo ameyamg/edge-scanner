@@ -1,19 +1,41 @@
-import { useEffect, useMemo, useRef, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { Alert, FeedId, ScannerConfig, ToneName } from '../../types'
 import { useFeeds, visibleSources, SOURCE_LABEL, alertKey } from '../../stores/feedsStore'
 import { useCapabilities } from '../../stores/capabilitiesStore'
 import { useSettings } from '../../stores/settingsStore'
 import { useSetups, useSystemSetups } from '../../stores/setupsStore'
 import { useScreens } from '../../stores/screensStore'
-import { linkSymbol } from '../../stores/linkStore'
+import { linkAlert } from '../../stores/linkStore'
 import { VirtualTable } from '../../components/VirtualTable'
 import { ChipMultiSelect, ColumnPicker, Field, Select, Toggle } from '../../components/primitives'
 import { playTone, speak, spellSymbol } from '../../lib/audio'
-import { SCANNER_COLUMNS, SCANNER_COLUMN_LIST, filterAlerts } from './columns'
+import { SCANNER_COLUMNS, SCANNER_COLUMN_LIST, filterAlerts, barClose } from './columns'
+import { DirBadge } from '../../components/Badge'
+import { fmtPrice, fmtX } from '../../lib/format'
+import { fmtTimeET } from '../../lib/time'
 
 function ttsText(a: Alert): string {
-  const what = a.setup_label || (a.setup ? useSetups.getState().label(a.setup) : '') || a.trigger.replace(/_/g, ' ')
-  return `${spellSymbol(a.symbol)} ${a.direction} ${what}`
+  return `${spellSymbol(a.symbol)} ${a.direction} ${setupName(a)}`
+}
+
+const setupName = (a: Alert) =>
+  a.setup_label || (a.setup ? useSetups.getState().label(a.setup) : '') || a.trigger.replace(/_/g, ' ')
+
+/** The alert being inspected, pinned above the table: new rows arriving, sorting
+ *  or the row scrolling away never change what this says. */
+function SelectedStrip({ a, linked, onClear }: { a: Alert; linked: boolean; onClear(): void }) {
+  const rvol = typeof a.context?.rvol === 'number' ? a.context.rvol : a.rvol
+  return (
+    <div className="sel-strip">
+      <DirBadge dir={a.direction} />
+      <span className="sym">{a.symbol}</span>
+      <span className="what" title={a.trigger_note ?? a.trigger_label ?? undefined}>{setupName(a)}</span>
+      <span className="meta mono">{fmtTimeET(barClose(a.timestamp))} ET · {fmtPrice(a.price)}{rvol != null ? ` · RVOL ${fmtX(rvol)}` : ''}</span>
+      <span className="flex-spacer" />
+      {!linked && <span className="hint" title="Pick a link color on this window so a click drives a chart">not linked to a chart</span>}
+      <button className="wf-ctl" title="Clear selection" onClick={onClear}>✕</button>
+    </div>
+  )
 }
 
 export function ScannerWindow({ win }: { win: ScannerConfig }) {
@@ -28,6 +50,8 @@ export function ScannerWindow({ win }: { win: ScannerConfig }) {
   const mountSeq = useRef(lastSeq)
   const seenSeq = useRef(lastSeq)
   const newKeys = useRef(new Set<string>())
+  const [selected, setSelected] = useState<Alert | null>(null)
+  const select = (a: Alert) => { setSelected(a); linkAlert(win, a) }
 
   // sound / TTS on a new alert that passes this window's filter
   useEffect(() => {
@@ -48,16 +72,21 @@ export function ScannerWindow({ win }: { win: ScannerConfig }) {
     : <span className="pulse">Connecting to the scanner feed…</span>
 
   return (
+    <div className="alert-wrap">
+    {selected && <SelectedStrip a={selected} linked={win.link !== 'none'} onClear={() => setSelected(null)} />}
     <VirtualTable<Alert>
       rows={rows}
       columns={columns}
       rowKey={alertKey}
-      onRowClick={a => linkSymbol(win, a.symbol, null)}
+      selectedKey={selected ? alertKey(selected) : null}
+      onRowClick={select}
+      onSelect={select}
       rowClass={a => `${win.rowTint ? (a.direction === 'short' ? 'tint-short' : 'tint-long') : ''}${newKeys.current.has(alertKey(a)) && lastSeq > mountSeq.current ? ' row-new' : ''}`}
       emptyText={empty}
       colWidths={win.colWidths}
       onColWidths={colWidths => useScreens.getState().updateWindow(win.id, { colWidths })}
     />
+    </div>
   )
 }
 

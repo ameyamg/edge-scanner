@@ -1,0 +1,118 @@
+{
+  "id": "price-action",
+  "name": "Price action",
+  "version": 1,
+  "createdAt": "2026-09-19T00:00:00Z",
+  "updatedAt": "2026-09-19T00:00:00Z",
+  "locked": false,
+  "layout": [
+    {
+      "i": "alerts1",
+      "x": 0,
+      "y": 0,
+      "w": 0.4,
+      "h": 1,
+      "z": 1,
+      "minW": 0.2477,
+      "minH": 0.1217
+    },
+    {
+      "i": "chart1",
+      "x": 0.404,
+      "y": 0,
+      "w": 0.596,
+      "h": 0.596,
+      "z": 2,
+      "minW": 0.2477,
+      "minH": 0.1468
+    },
+    {
+      "i": "chart2",
+      "x": 0.404,
+      "y": 0.6,
+      "w": 0.596,
+      "h": 0.4,
+      "z": 3,
+      "minW": 0.2477,
+      "minH": 0.1468
+    }
+  ],
+  "windows": {
+    "alerts1": {
+      "id": "alerts1",
+      "type": "scanner",
+      "title": "Alerts",
+      "link": "red",
+      "muted": false,
+      "sound": {
+        "tone": "ping",
+        "tts": false
+      },
+      "setups": [],
+      "direction": "all",
+      "minScore": 0,
+      "symbolFilter": "",
+      "columns": [
+        "time",
+        "symbol",
+        "dir",
+        "setup",
+        "price",
+        "rvol",
+        "vwap"
+      ],
+      "rowTint": true,
+      "maxRows": 500,
+      "sources": []
+    },
+    "chart1": {
+      "id": "chart1",
+      "type": "chart",
+      "link": "red",
+      "muted": false,
+      "sound": {
+        "tone": "off",
+        "tts": false
+      },
+      "symbol": "SPY",
+      "timeframe": "5m",
+      "extended": false,
+      "overlays": {
+        "vwap": true,
+        "ema9": true,
+        "ema21": true,
+        "volume": true,
+        "sma50": false,
+        "sma100": false,
+        "sma200": false,
+        "pdHL": true,
+        "pmHL": true
+      }
+    },
+    "chart2": {
+      "id": "chart2",
+      "type": "chart",
+      "link": "red",
+      "muted": false,
+      "sound": {
+        "tone": "off",
+        "tts": false
+      },
+      "symbol": "SPY",
+      "timeframe": "1D",
+      "extended": false,
+      "overlays": {
+        "vwap": false,
+        "ema9": false,
+        "ema21": false,
+        "volume": true,
+        "sma50": true,
+        "sma100": true,
+        "sma200": true,
+        "pdHL": false,
+        "pmHL": false
+      }
+    }
+  },
+  "grid": 3
+}

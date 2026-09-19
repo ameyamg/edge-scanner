@@ -20,7 +20,7 @@ import { fmtTimeET } from '../../lib/time'
  *
  *  The payload is untouched: downstream clients still read `timestamp`.
  */
-const barClose = (iso: string): string => {
+export const barClose = (iso: string): string => {
   const t = Date.parse(iso)
   return Number.isNaN(t) ? iso : new Date(t + 60_000).toISOString()
 }
@@ -46,7 +46,7 @@ export const SCANNER_COLUMNS: Record<string, Column<Alert>> = {
   source: { id: 'source', label: 'Src', width: '40px', cell: a => <span className={`badge src-${sourceOf(a)}`} title={sourceOf(a)}>{SOURCE_SHORT[sourceOf(a)]}</span>, sortValue: a => sourceOf(a) },
   time: { id: 'time', label: 'Time', width: '52px', cell: a => <span className="mono dim" title={`bar ${fmtTimeET(a.timestamp)}-${fmtTimeET(barClose(a.timestamp))}`}>{fmtTimeET(barClose(a.timestamp))}</span>, sortValue: a => a.timestamp },
   symbol: { id: 'symbol', label: 'Symbol', width: 'minmax(78px, 1fr)', cell: a => <span className="row" style={{ gap: 4 }}><span className="sym">{a.symbol}</span><SymbolActions symbol={a.symbol} /></span>, sortValue: a => a.symbol },
-  dir: { id: 'dir', label: 'Dir', width: '58px', cell: a => <DirBadge dir={a.direction} />, sortValue: a => a.direction },
+  dir: { id: 'dir', label: 'Dir', width: '68px', cell: a => <DirBadge dir={a.direction} />, sortValue: a => a.direction },
   price: { id: 'price', label: 'Price', width: '64px', num: true, cell: a => fmtPrice(a.price), sortValue: a => a.price },
   setup: { id: 'setup', label: 'Setup', width: '96px', cell: a => <SetupBadge setup={a.setup} label={a.setup_label} color={a.setup_color} fallback={feedSetupName(a)} />, sortValue: a => a.setup_label ?? a.setup ?? feedSetupName(a) ?? '' },
   tier: { id: 'tier', label: 'Tier', width: '40px', num: true, cell: a => (a.tier == null ? DASH : String(a.tier)), sortValue: a => a.tier ?? null },

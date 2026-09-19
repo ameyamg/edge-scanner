@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import type { CheckResult, CustomSetup, ParamDef, SettingsPayload, SetupTrigger, TriggerDef } from '../types'
 import { api } from '../lib/api'
+import { id as randomId } from '../lib/ids'
 import { fmtTimeET } from '../lib/time'
 import { useSetups, useSystemSetups, systemTone, TONE_COLOR } from '../stores/setupsStore'
 import { useUniverse } from '../stores/universeStore'
@@ -267,6 +268,10 @@ export function SetupsPanel({ onClose }: { onClose(): void }) {
   const [nameDraft, setNameDraft] = useState<string | null>(null)   // system display name being edited
   const [picker, setPicker] = useState(false)
   const [presetName, setPresetName] = useState('')
+  // The universe / parameter-set editor reports unsaved edits here. A ref, not state:
+  // a save that then selects the saved filter must not ask about the edit it just saved.
+  const uniDirtyRef = useRef(false)
+  const setUniDirty = useCallback((d: boolean) => { uniDirtyRef.current = d }, [])
 
   const loadSettings = useCallback(async () => {
     try { setSettings(await api.settings.get()); setError(null) } catch (e) { setError(e instanceof Error ? e.message : String(e)) }
@@ -278,14 +283,12 @@ export function SetupsPanel({ onClose }: { onClose(): void }) {
     return () => { alive = false }
   }, [])
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !picker) onClose() }
-    window.addEventListener('keydown', onKey)
     const t = setInterval(() => {
       api.settings.stats().then(st => setSettings(d => (d ? { ...d, stats: st } : d))).catch(() => { /* ignore */ })
       void useSetups.getState().load()
     }, 5000)
-    return () => { window.removeEventListener('keydown', onKey); clearInterval(t) }
-  }, [onClose, picker])
+    return () => clearInterval(t)
+  }, [])
 
   // derived: the custom setup currently shown (draft wins)
   const current = useMemo<CustomSetup | null>(() => {
@@ -294,21 +297,28 @@ export function SetupsPanel({ onClose }: { onClose(): void }) {
     return null
   }, [sel, draft, setups.customById])
   const dirtyCustom = !!draft && (sel.kind === 'new' || JSON.stringify(draft) !== JSON.stringify(setups.customById[draft.id]))
+  const dirtyKeys = useMemo(() => Object.keys(paramDraft).filter(k => settings && paramDraft[k] !== settings.values[k]), [paramDraft, settings])
+  const dirtyName = sel.kind === 'system' && nameDraft != null && nameDraft !== (setups.systemNames[sel.code] ?? sel.code)
+  /** One question for every way out of an edit: switching setup or section, Escape,
+   *  the close button and a click on the backdrop. Parameter edits count too. */
+  const confirmDiscard = () => !(dirtyCustom || dirtyName || uniDirtyRef.current || dirtyKeys.length > 0)
+    || confirm('You have unsaved changes. Discard them?')
+  const requestClose = () => { if (confirmDiscard()) onClose() }
 
   const select = (s: Sel) => {
-    if (dirtyCustom && !confirm('Discard unsaved changes to this setup?')) return
-    setDraft(null); setNameDraft(null); setSel(s); setSection(sectionOf(s))
+    if (!confirmDiscard()) return
+    setDraft(null); setNameDraft(null); setParamDraft({}); setUniDirty(false); setSel(s); setSection(sectionOf(s))
     if (s.kind === 'new') { setDraft(blankSetup()); setTab('general') }
     else if (tab === 'params' && (s.kind === 'universe' || s.kind === 'universe-new'
              || s.kind === 'toplist')) setTab('general')
     else if (tab === 'log' && s.kind !== 'system') setTab('general')
     if (s.kind === 'universe' || s.kind === 'universe-new') setTab('general')
-    if (s.kind === 'universe-new') setNewUniId(`up_${Date.now().toString(36)}`)
+    if (s.kind === 'universe-new') setNewUniId(randomId('up'))
   }
   const goSection = (next: Section) => {
     if (next === section) return
-    if (dirtyCustom && !confirm('Discard unsaved changes to this setup?')) return
-    setDraft(null); setNameDraft(null); setSection(next); setTab('general')
+    if (!confirmDiscard()) return
+    setDraft(null); setNameDraft(null); setParamDraft({}); setUniDirty(false); setSection(next); setTab('general')
     if (next === 'setups') setSel({ kind: 'none' })
     else if (next === 'toplists') setSel({ kind: 'toplist', name: toplists.toplists[0]?.name ?? 'rvol' })
     else setSel({ kind: 'universe', id: ALL_ID })
@@ -344,7 +354,7 @@ export function SetupsPanel({ onClose }: { onClose(): void }) {
     finally { setBusy(false) }
   }
   const duplicate = () => {
-    if (dirtyCustom && !confirm('Discard unsaved changes to this setup?')) return
+    if (!confirmDiscard()) return
     let base: CustomSetup
     if (sel.kind === 'system') {
       const code = sel.code
@@ -368,7 +378,15 @@ export function SetupsPanel({ onClose }: { onClose(): void }) {
 
   // system params
   const byKey = useMemo(() => Object.fromEntries((settings?.schema ?? []).map(p => [p.key, p])), [settings])
-  const dirtyKeys = useMemo(() => Object.keys(paramDraft).filter(k => settings && paramDraft[k] !== settings.values[k]), [paramDraft, settings])
+  // Escape closes the trigger picker first (it handles its own key), then Config, guarded.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape' || picker) return
+      if (!(dirtyCustom || dirtyName || uniDirtyRef.current || dirtyKeys.length > 0) || confirm('You have unsaved changes. Discard them?')) onClose()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [picker, dirtyCustom, dirtyName, dirtyKeys, onClose])
   // Parameters of one system setup: its own, plus the shared ('*') ones. Which
   // setup owns each parameter is the backend's call, never decided here.
   const paramsFor = (code: string) => (settings?.schema ?? []).filter(p => (
@@ -463,7 +481,7 @@ export function SetupsPanel({ onClose }: { onClose(): void }) {
   )
 
   const body = (
-    <div className="modal-back" onMouseDown={e => { if (e.target === e.currentTarget && !dirtyCustom && !dirtyKeys.length) onClose() }}>
+    <div className="modal-back" onMouseDown={e => { if (e.target === e.currentTarget) requestClose() }}>
       <div className="modal cfg wf-nodrag" role="dialog" aria-modal="true">
         <div className="modal-head" style={{ alignItems: 'center' }}>
           <div style={{ flex: 1, minWidth: 0 }}>
@@ -490,7 +508,7 @@ export function SetupsPanel({ onClose }: { onClose(): void }) {
               <button className="btn sm" disabled={!presetName.trim() || busy} onClick={() => { void runSettings(() => api.settings.savePreset(presetName.trim())); setPresetName('') }}>Save preset</button>
             </div>
           )}
-          <button className="btn sm icon" title="Close (Esc)" onClick={onClose}>✕</button>
+          <button className="btn sm icon" title="Close (Esc)" onClick={requestClose}>✕</button>
         </div>
 
         {nModified > 0 && sysCode && (
@@ -582,8 +600,9 @@ export function SetupsPanel({ onClose }: { onClose(): void }) {
                   id: newUniId, name: 'New filter', desc: '',
                   color: '#8b5cf6', conditions: [], source: 'user',
                 }}
-                onSaved={pr => select({ kind: 'universe', id: pr.id })}
-                onDeleted={() => select({ kind: 'none' })}
+                onSaved={pr => { setUniDirty(false); select({ kind: 'universe', id: pr.id }) }}
+                onDeleted={() => { setUniDirty(false); select({ kind: 'none' }) }}
+                onDirtyChange={setUniDirty}
               />
             )}
             {section === 'toplists' && !toplistSel && (

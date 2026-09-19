@@ -39,7 +39,9 @@ def load_universe(path: str | Path = _DEFAULT_UNIVERSE_PATH) -> list[str]:
             f"Universe file not found: {p}\n"
             "Build it first with:  python scripts/build_universe.py"
         )
-    df = pd.read_csv(p)
+    # Tickers are text: without this, pandas reads real symbols such as NA
+    # (and NAN, NULL, N/A) as missing values and they drop out of the universe.
+    df = pd.read_csv(p, dtype={"symbol": str}, keep_default_na=False, na_values=[""])
     if "symbol" not in df.columns:
         raise ValueError(
             f"Universe CSV is missing a 'symbol' column: {p}\n"

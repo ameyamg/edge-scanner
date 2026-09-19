@@ -20,6 +20,8 @@ export interface VirtualTableProps<T> {
   rowClass?(row: T): string
   rowStyle?(row: T): React.CSSProperties | undefined
   selectedKey?: string | null
+  /** Arrow keys / Home / End move the selection: called with the newly selected row. */
+  onSelect?(row: T): void
   defaultSort?: { id: string; dir: SortDir }
   rowHeight?: number
   emptyText?: ReactNode
@@ -32,7 +34,7 @@ export interface VirtualTableProps<T> {
 const MIN_COL_PX = 28
 
 export function VirtualTable<T>({
-  rows, columns, rowKey, onRowClick, onRowDoubleClick, rowClass, rowStyle, selectedKey, defaultSort, rowHeight = 24, emptyText,
+  rows, columns, rowKey, onRowClick, onRowDoubleClick, rowClass, rowStyle, selectedKey, onSelect, defaultSort, rowHeight = 24, emptyText,
   colWidths, onColWidths,
 }: VirtualTableProps<T>) {
   const parentRef = useRef<HTMLDivElement>(null)
@@ -64,6 +66,28 @@ export function VirtualTable<T>({
     estimateSize: () => rowHeight,
     overscan: 12,
   })
+
+  // Keyboard: the selection is tracked by row key, so it survives sorting and new
+  // rows arriving; the arrow keys step from wherever that row currently is.
+  const onKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (!onSelect || !sorted.length) return
+    const cur = selectedKey == null ? -1 : sorted.findIndex(r => rowKey(r) === selectedKey)
+    const page = Math.max(1, Math.floor((parentRef.current?.clientHeight ?? rowHeight * 10) / rowHeight) - 1)
+    let next: number
+    switch (e.key) {
+      case 'ArrowDown': next = cur < 0 ? 0 : cur + 1; break
+      case 'ArrowUp': next = cur < 0 ? 0 : cur - 1; break
+      case 'PageDown': next = cur + page; break
+      case 'PageUp': next = cur - page; break
+      case 'Home': next = 0; break
+      case 'End': next = sorted.length - 1; break
+      default: return
+    }
+    e.preventDefault()
+    next = Math.max(0, Math.min(sorted.length - 1, next))
+    onSelect(sorted[next])
+    rowVirtualizer.scrollToIndex(next, { align: 'auto' })
+  }
 
   const clickHeader = (c: Column<T>) => {
     if (!c.sortValue) return
@@ -102,7 +126,7 @@ export function VirtualTable<T>({
   }
 
   return (
-    <div ref={parentRef} className="tbl wf-nodrag">
+    <div ref={parentRef} className="tbl wf-nodrag" tabIndex={onSelect ? 0 : undefined} onKeyDown={onSelect ? onKeyDown : undefined}>
       <div className="tbl-head" style={{ gridTemplateColumns: template }}>
         {columns.map(c => (
           <div key={c.id} className={`${c.num ? 'num' : ''}${sort?.id === c.id ? ' sorted' : ''}`} onClick={() => clickHeader(c)}>

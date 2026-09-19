@@ -11,7 +11,7 @@ from zoneinfo import ZoneInfo
 import pandas as pd
 from dotenv import load_dotenv
 
-from alpaca.data.enums import DataFeed as AlpacaDataFeed
+from alpaca.data.enums import Adjustment, DataFeed as AlpacaDataFeed
 from alpaca.data.historical import StockHistoricalDataClient
 from alpaca.data.requests import StockBarsRequest
 from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
@@ -36,8 +36,18 @@ def market_data_feed() -> AlpacaDataFeed:
     return AlpacaDataFeed.IEX if os.environ.get("ALPACA_FEED", "sip").strip().lower() == "iex" else AlpacaDataFeed.SIP
 
 
-_DEFAULT_DAILY_CACHE = Path("data/daily")
-_DEFAULT_INTRADAY_CACHE = Path("data/5m")
+# History is SPLIT-ADJUSTED (see _ADJUST). The cache folders carry the
+# adjustment in their name: the old data/daily and data/5m hold raw bars, and a
+# cache that mixed raw and adjusted files would be wrong in both directions.
+_DEFAULT_DAILY_CACHE = Path("data/daily_split")
+_DEFAULT_INTRADAY_CACHE = Path("data/5m_split")
+
+# Alpaca returns RAW bars unless asked. Across a split, raw history mixes old
+# and new share terms: after a 1-for-80 reverse split the 20-day volume reads
+# 80x too high and every moving average, 60-day level and ATR spans a price
+# jump that never happened. Split adjustment matches what charts show.
+# Dividends are left unadjusted, also as charts show by default.
+_ADJUST = Adjustment.SPLIT
 
 _BAR_COLS = ["open", "high", "low", "close", "volume", "vwap", "trade_count"]
 
@@ -98,6 +108,7 @@ class AlpacaFeed(DataFeed):
             # and all prior-day levels one session stale.
             end=datetime.combine(end, datetime.max.time()),
             feed=market_data_feed(),
+            adjustment=_ADJUST,
         )
         bars = self._client.get_stock_bars(request)
         df = bars.df
@@ -208,6 +219,7 @@ class AlpacaFeed(DataFeed):
             start=datetime.combine(start, datetime.min.time()),
             end=datetime.combine(end, datetime.max.time()),
             feed=market_data_feed(),
+            adjustment=_ADJUST,
         )
         bars = self._client.get_stock_bars(request)
         df = bars.df
@@ -235,6 +247,7 @@ class AlpacaFeed(DataFeed):
             start=start_et,
             end=end_et,
             feed=market_data_feed(),
+            adjustment=_ADJUST,
         )
         bars = self._client.get_stock_bars(request)
         df = bars.df
@@ -266,6 +279,7 @@ class AlpacaFeed(DataFeed):
             start=datetime.combine(start, datetime.min.time()),
             end=datetime.combine(end, datetime.max.time()),
             feed=market_data_feed(),
+            adjustment=_ADJUST,
         )
         delay = 1.0
         for attempt in range(1, attempts + 1):
@@ -396,6 +410,7 @@ class AlpacaFeed(DataFeed):
                 start=start_et,
                 end=end_et,
                 feed=market_data_feed(),
+            adjustment=_ADJUST,
             )
             bars = self._client.get_stock_bars(req)
             df = bars.df

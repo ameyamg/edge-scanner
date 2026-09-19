@@ -51,7 +51,7 @@ export function WindowFrame({ win, locked, maximized = false, onToggleMaximize }
         <div className={locked ? 'wf-drag locked' : 'wf-drag'} title={locked ? 'Layout locked' : 'Drag to move · double-click to maximize'}>
           <span className="faint" style={{ fontSize: 11 }}>{WINDOW_ICONS[win.type]}</span>
           <span className="wf-title">{title}</span>
-          {sub && <span className={`wf-sub${linkedSymbol || sub.strong ? ' strong' : ''}`}>{sub.text}</span>}
+          {sub && <span className={`wf-sub${linkedSymbol && sub.text === linkedSymbol ? ' linked' : sub.strong ? ' strong' : ''}`} title={linkedSymbol && sub.text === linkedSymbol ? `Link group ${win.link}: ${linkedSymbol}` : undefined}>{sub.text}</span>}
         </div>
         {USES_SOUND[win.type] && (
           <button className={`wf-ctl wf-nodrag${win.muted ? '' : ' on'}`} title={win.muted ? 'Unmute window' : 'Mute window'}

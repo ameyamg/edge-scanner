@@ -4,6 +4,13 @@ import { api } from '../lib/api'
 import { id as newId } from '../lib/ids'
 import { WINDOW_SIZES, migrateScannerWindow, windowDefaults } from '../windows/defaults'
 import defaultMain from '../../defaults/screens/main.json'
+import priceAction from '../../defaults/screens/price-action.json'
+
+/** Starter layouts a user can add as a NEW screen. Never applied to an existing one. */
+export const SCREEN_TEMPLATES = {
+  'price-action': { label: 'Price action', desc: 'Alerts beside an intraday and a daily chart', screen: priceAction },
+} as const
+export type ScreenTemplate = keyof typeof SCREEN_TEMPLATES
 
 const ACTIVE_KEY = 'scanner-v2-active-screen'
 const SAVE_DEBOUNCE_MS = 750
@@ -28,6 +35,8 @@ interface ScreensState {
   load(): Promise<void>
   setActive(id: string): void
   createScreen(name: string): string
+  /** Add a starter layout as a new screen and switch to it. */
+  createFromTemplate(tpl: ScreenTemplate): string
   renameScreen(id: string, name: string): void
   duplicateScreen(id: string, name?: string): string
   deleteScreen(id: string): void
@@ -149,9 +158,9 @@ function freshScreen(name: string): Screen {
   return { id: newId('scr'), name, version: 1, grid: GRID_VERSION, createdAt: now, updatedAt: now, locked: false, layout: [], windows: {} }
 }
 
-function seedFromDefault(): Screen {
+function seedFromDefault(src: unknown = defaultMain): Screen {
   // Re-key the shipped default so several installs never share ids.
-  const tpl = migrateGrid(defaultMain as unknown as Screen).screen
+  const tpl = migrateGrid(src as Screen).screen
   const s = freshScreen(tpl.name || 'Main')
   const map = new Map<string, string>()
   for (const w of Object.values(tpl.windows ?? {})) map.set(w.id, newId('w'))
@@ -222,6 +231,20 @@ export const useScreens = create<ScreensState>()((set, get) => {
 
     createScreen(name) {
       const s = freshScreen(name.trim() || 'New screen')
+      set(st => ({ screens: { ...st.screens, [s.id]: s }, order: [...st.order, s.id] }))
+      get().setActive(s.id)
+      schedulePersist(get, set, s.id)
+      return s.id
+    },
+
+    createFromTemplate(key) {
+      const t = SCREEN_TEMPLATES[key]
+      const s = seedFromDefault(t.screen)
+      // "Price action", then "Price action 2", ... so a second copy is not confused with the first
+      const names = new Set(Object.values(get().screens).map(x => x.name))
+      let name: string = t.label
+      for (let n = 2; names.has(name); n++) name = `${t.label} ${n}`
+      s.name = name
       set(st => ({ screens: { ...st.screens, [s.id]: s }, order: [...st.order, s.id] }))
       get().setActive(s.id)
       schedulePersist(get, set, s.id)

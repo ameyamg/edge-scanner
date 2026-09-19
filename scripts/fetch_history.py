@@ -27,7 +27,7 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s  %(message)s")
 
 _DEFAULT_UNIVERSE = Path("data/universe.csv")
 _FALLBACK_SYMBOLS = ["SPY", "AAPL", "MSFT", "NVDA", "AMZN"]
-DEFAULT_CACHE = Path("data/daily")
+DEFAULT_CACHE = Path("data/daily_split")
 
 
 def main() -> None:
