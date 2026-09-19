@@ -77,6 +77,32 @@ Your keys are in the Alpaca dashboard under **API Keys**. Use `ALPACA_FEED=iex` 
 subscription (see [Requirements](#1-requirements)). The `.env` file is gitignored; never commit or share
 it.
 
+#### Optional: Charles Schwab as the data provider
+
+A Schwab brokerage account includes market data, so it can replace the paid Alpaca SIP plan.
+It is newer than the Alpaca path. Alpaca keys, if you keep them in `.env`, still supply the Benzinga
+news; without them news comes from the free Yahoo and Nasdaq feeds.
+
+1. Create an app at [developer.schwab.com](https://developer.schwab.com) (callback URL
+   `https://127.0.0.1`) and wait for it to be approved.
+2. Add to `.env`:
+   ```
+   DATA_PROVIDER=schwab
+   SCHWAB_APP_KEY=your_app_key
+   SCHWAB_APP_SECRET=your_app_secret
+   SCHWAB_CALLBACK_URL=https://127.0.0.1
+   ```
+3. Log in once: `python scripts/schwab_auth.py`. It opens the Schwab login; after you approve,
+   the browser shows a page that fails to load. That is expected: paste the whole address from the
+   address bar back into the terminal. The login is saved under `~/.schwabdev/`.
+4. **Schwab expires the login every 7 days.** Run `schwab_auth.py` again weekly, or the scanner
+   stops at startup with a message telling you to.
+
+Schwab allows one symbol per history request, so the first start takes longer than on Alpaca.
+Its cache is separate (`data/schwab/`), so switching back and forth never mixes the two. To see how
+closely the two providers agree on your universe: `python scripts/check_schwab_match.py`
+(needs both logins; about an hour the first time).
+
 ### Step 4: Run it
 
 ```
@@ -328,6 +354,9 @@ filters more to choose from but costs more CPU per minute and a longer first dow
 | `scripts/build_universe.py` | Builds the base universe CSV. Called automatically by `run_live.py` when the default universe is over 7 days old |
 | `scripts/install_setup_library.py` | Installs the sample custom setups into a running scanner |
 | `scripts/fetch_history.py` | Seeds or refreshes the daily bar cache for a symbol list |
+| `scripts/schwab_auth.py` | Logs in to Schwab (`DATA_PROVIDER=schwab`); repeat weekly |
+| `scripts/check_schwab_match.py` | Compares Alpaca and Schwab universes and data side by side |
+| `scripts/compare_universes.py` | Builds two universes and explains every difference |
 | `start_scanner.bat`, `start_scanner.sh` | Launchers for Windows and for macOS / Linux (section 3) |
 | `restart_scanner.bat` | Stops a running scanner and starts it again (Windows) |
 

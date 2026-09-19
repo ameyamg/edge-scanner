@@ -22,7 +22,8 @@ editable, so you can start from something that works and build your own.
 - **Dashboard.** Free-floating windows: alert tables, charts, rankings (top gainers, losers,
   most active, etc.), news, stock info, watchlists, a per-symbol setup check that explains why
   a setup did or did not fire, and a market clock. Multiple saved screens.
-- **One data connection.** Everything runs in one process on one Alpaca market-data websocket.
+- **One data connection.** Everything runs in one process on one market-data websocket:
+  Alpaca by default, or Charles Schwab (`DATA_PROVIDER=schwab`, free with a Schwab account).
 - **A feed for other programs.** `ws://localhost:7777/ws/alerts`, with server-side filters.
 - **News.** Alpaca (Benzinga) news plus free per-symbol Yahoo Finance and Nasdaq feeds.
 - **Extensible.** Optional engine plugins can add built-in setups and data providers

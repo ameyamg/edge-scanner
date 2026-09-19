@@ -1,4 +1,4 @@
-"""Data providers. Alpaca is built in; a plugin can register more.
+"""Data providers. Alpaca and Schwab are built in; a plugin can register more.
 
     from scanner.data import make_feed
     feed = make_feed("alpaca")
@@ -16,6 +16,8 @@ from scanner import plugins
 from scanner.data.interface import DataFeed
 
 _EXTRA = plugins.extra_feeds()
+_BUILTIN = {"schwab": "scanner.data.schwab:SchwabFeed"}
+_EXTRA = {**_BUILTIN, **_EXTRA}
 FEEDS = ("alpaca", *sorted(_EXTRA))
 
 
