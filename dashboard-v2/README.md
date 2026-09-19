@@ -84,9 +84,11 @@ Changes apply on the next bar without a restart.
 - **Screens** (layouts) are saved on the server through `/api/v2/layouts`, 750 ms after any
   change. Window bounds are stored as fractions of the workspace, so a screen keeps its
   arrangement on any monitor size or scaling factor. Older screens are migrated on load.
-- The shipped default screen is `defaults/screens/main.json` (clock, two charts, one Alerts
-  scanner showing every source, rankings, news, stock info and setup check); it is seeded on first
-  run when no screens exist.
+- Two screens ship in `defaults/screens/` and are seeded on first run when no screens exist:
+  **Pre-Market** (pre-market gainers, losers and volume rankings driving a pre-market chart, a
+  daily chart, news and stock info) and **Price Action** (an Alerts scanner beside intraday and
+  daily charts and Setup Check, plus a second link group: RVOL leaders and 5-min movers driving a
+  1-minute chart). Both stay available under Screens > Starter layouts.
 - Per-browser preferences (active screen, theme, hidden menu, global mute) live in `localStorage`.
 
 ## Shortcuts

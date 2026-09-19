@@ -173,7 +173,17 @@ Watchlist window and every window of that color (chart, news, stock info, setup 
 
 A screen is a saved arrangement of windows. You can keep any number of named screens and switch between
 them from the top bar. Screens are saved automatically on the server (`data/layouts/`) and keep their
-proportions on any monitor size. A default screen is created on first run.
+proportions on any monitor size. Two screens are created on first run:
+
+- **Pre-Market**: pre-market gainers, losers and volume rankings. Click a symbol and the pre-market
+  chart, daily chart, news and stock info all follow it.
+- **Price Action**: an Alerts scanner beside intraday and daily charts and Setup Check (the red
+  link group), plus a second, independent group (blue): RVOL leaders and 5-min movers driving a
+  1-minute chart. It shows how windows of any size sit side by side and how link groups keep
+  two workflows apart.
+
+Add either again at any time from Screens > Starter layouts; it arrives as a new screen and never
+replaces one of yours.
 
 ### News sources
 

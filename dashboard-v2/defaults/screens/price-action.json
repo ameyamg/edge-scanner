@@ -1,6 +1,6 @@
 {
   "id": "price-action",
-  "name": "Price action",
+  "name": "Price Action",
   "version": 1,
   "createdAt": "2026-09-19T00:00:00Z",
   "updatedAt": "2026-09-19T00:00:00Z",
@@ -10,45 +10,87 @@
       "i": "alerts1",
       "x": 0,
       "y": 0,
-      "w": 0.4,
-      "h": 1,
+      "w": 0.34,
+      "h": 0.62,
       "z": 1,
-      "minW": 0.2477,
-      "minH": 0.1217
+      "minW": 0.2188,
+      "minH": 0.1441
     },
     {
-      "i": "chart1",
-      "x": 0.404,
+      "i": "c5",
+      "x": 0.34400000000000003,
       "y": 0,
-      "w": 0.596,
-      "h": 0.596,
+      "w": 0.416,
+      "h": 0.62,
       "z": 2,
-      "minW": 0.2477,
-      "minH": 0.1468
+      "minW": 0.2188,
+      "minH": 0.1729
     },
     {
-      "i": "chart2",
-      "x": 0.404,
-      "y": 0.6,
-      "w": 0.596,
-      "h": 0.4,
+      "i": "cd",
+      "x": 0.764,
+      "y": 0,
+      "w": 0.236,
+      "h": 0.36,
       "z": 3,
-      "minW": 0.2477,
-      "minH": 0.1468
+      "minW": 0.2188,
+      "minH": 0.1729
+    },
+    {
+      "i": "chk",
+      "x": 0.764,
+      "y": 0.364,
+      "w": 0.236,
+      "h": 0.636,
+      "z": 4,
+      "minW": 0.1875,
+      "minH": 0.1729
+    },
+    {
+      "i": "rv",
+      "x": 0,
+      "y": 0.624,
+      "w": 0.2,
+      "h": 0.376,
+      "z": 5,
+      "minW": 0.1562,
+      "minH": 0.1441
+    },
+    {
+      "i": "mv",
+      "x": 0.20400000000000001,
+      "y": 0.624,
+      "w": 0.196,
+      "h": 0.376,
+      "z": 6,
+      "minW": 0.1562,
+      "minH": 0.1441
+    },
+    {
+      "i": "c1",
+      "x": 0.404,
+      "y": 0.624,
+      "w": 0.356,
+      "h": 0.376,
+      "z": 7,
+      "minW": 0.2188,
+      "minH": 0.1729
     }
   ],
   "windows": {
     "alerts1": {
       "id": "alerts1",
       "type": "scanner",
-      "title": "Alerts",
       "link": "red",
       "muted": false,
       "sound": {
         "tone": "ping",
         "tts": false
       },
+      "title": "Alerts",
+      "sources": [],
       "setups": [],
+      "noSetups": false,
       "direction": "all",
       "minScore": 0,
       "symbolFilter": "",
@@ -59,14 +101,13 @@
         "setup",
         "price",
         "rvol",
-        "vwap"
+        "gap"
       ],
       "rowTint": true,
-      "maxRows": 500,
-      "sources": []
+      "maxRows": 500
     },
-    "chart1": {
-      "id": "chart1",
+    "c5": {
+      "id": "c5",
       "type": "chart",
       "link": "red",
       "muted": false,
@@ -74,6 +115,7 @@
         "tone": "off",
         "tts": false
       },
+      "title": "Intraday",
       "symbol": "SPY",
       "timeframe": "5m",
       "extended": false,
@@ -89,8 +131,8 @@
         "pmHL": true
       }
     },
-    "chart2": {
-      "id": "chart2",
+    "cd": {
+      "id": "cd",
       "type": "chart",
       "link": "red",
       "muted": false,
@@ -98,6 +140,7 @@
         "tone": "off",
         "tts": false
       },
+      "title": "Daily",
       "symbol": "SPY",
       "timeframe": "1D",
       "extended": false,
@@ -107,10 +150,75 @@
         "ema21": false,
         "volume": true,
         "sma50": true,
-        "sma100": true,
+        "sma100": false,
         "sma200": true,
         "pdHL": false,
         "pmHL": false
+      }
+    },
+    "chk": {
+      "id": "chk",
+      "type": "setupcheck",
+      "link": "red",
+      "muted": false,
+      "sound": {
+        "tone": "off",
+        "tts": false
+      },
+      "symbol": null,
+      "minutes": 5
+    },
+    "rv": {
+      "id": "rv",
+      "type": "toplist",
+      "link": "blue",
+      "muted": false,
+      "sound": {
+        "tone": "off",
+        "tts": false
+      },
+      "title": "RVOL leaders",
+      "list": "rvol",
+      "limit": 25,
+      "heat": true
+    },
+    "mv": {
+      "id": "mv",
+      "type": "toplist",
+      "link": "blue",
+      "muted": false,
+      "sound": {
+        "tone": "off",
+        "tts": false
+      },
+      "title": "5-min movers",
+      "list": "movers_5m",
+      "limit": 25,
+      "heat": true
+    },
+    "c1": {
+      "id": "c1",
+      "type": "chart",
+      "link": "blue",
+      "muted": false,
+      "sound": {
+        "tone": "off",
+        "tts": false
+      },
+      "title": "Momentum (1m)",
+      "symbol": "SPY",
+      "timeframe": "1m",
+      "extended": false,
+      "overlays": {
+        "vwap": true,
+        "ema9": true,
+        "ema21": true,
+        "volume": true,
+        "sma50": false,
+        "sma100": false,
+        "sma200": false,
+        "pdHL": true,
+        "pmHL": true
       }
     }
   },

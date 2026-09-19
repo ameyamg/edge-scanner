@@ -3,12 +3,15 @@ import type { GridItem, Screen, WindowConfig, WindowType } from '../types'
 import { api } from '../lib/api'
 import { id as newId } from '../lib/ids'
 import { WINDOW_SIZES, migrateScannerWindow, windowDefaults } from '../windows/defaults'
-import defaultMain from '../../defaults/screens/main.json'
+import preMarket from '../../defaults/screens/pre-market.json'
 import priceAction from '../../defaults/screens/price-action.json'
 
-/** Starter layouts a user can add as a NEW screen. Never applied to an existing one. */
+/** The shipped screens. Both are seeded on a first run (no screens saved yet), in
+ *  this order, and stay available as starter layouts that add a NEW screen; a
+ *  template is never applied over an existing one. */
 export const SCREEN_TEMPLATES = {
-  'price-action': { label: 'Price action', desc: 'Alerts beside an intraday and a daily chart', screen: priceAction },
+  'pre-market': { label: 'Pre-Market', desc: 'Pre-market gainers, losers and volume driving linked charts, news and stock info', screen: preMarket },
+  'price-action': { label: 'Price Action', desc: 'Alerts beside intraday and daily charts and Setup Check, plus a second link group of rankings and a 1-minute chart', screen: priceAction },
 } as const
 export type ScreenTemplate = keyof typeof SCREEN_TEMPLATES
 
@@ -158,7 +161,7 @@ function freshScreen(name: string): Screen {
   return { id: newId('scr'), name, version: 1, grid: GRID_VERSION, createdAt: now, updatedAt: now, locked: false, layout: [], windows: {} }
 }
 
-function seedFromDefault(src: unknown = defaultMain): Screen {
+function seedFromDefault(src: unknown): Screen {
   // Re-key the shipped default so several installs never share ids.
   const tpl = migrateGrid(src as Screen).screen
   const s = freshScreen(tpl.name || 'Main')
@@ -211,9 +214,8 @@ export const useScreens = create<ScreensState>()((set, get) => {
         return m.screen
       })
       if (list.length === 0) {
-        const seed = seedFromDefault()
-        list = [seed]
-        if (!loadError) api.layouts.save(seed).catch(() => { /* surfaced via saveState later */ })
+        list = Object.values(SCREEN_TEMPLATES).map(t => ({ ...seedFromDefault(t.screen), name: t.label }))
+        if (!loadError) for (const seed of list) api.layouts.save(seed).catch(() => { /* surfaced via saveState later */ })
       }
       const screens: Record<string, Screen> = {}
       for (const s of list) screens[s.id] = s
