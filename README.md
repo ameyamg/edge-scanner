@@ -10,7 +10,8 @@ alerts in a browser dashboard you lay out yourself. For day traders who want the
 instead of someone else's alert list.
 
 - **Your machine, your keys.** No account, no subscription, no telemetry. Market data comes from
-  your own Alpaca or Charles Schwab login, and everything it builds stays in `data/`.
+  your own Alpaca or Charles Schwab login, and everything it builds stays in `data/`. Any other
+  provider can be added behind the same interface.
 - **Setups without code.** Compose them in the dashboard from about 45 triggers and a list of
   conditions. Changes apply on the next bar, with no restart.
 - **It tells you why.** For any stock, Setup Check shows what each setup did in the last few
@@ -54,7 +55,9 @@ no login because nothing is exposed to the network.
 - **Dashboard windows.** Alert tables, charts, rankings (gainers, losers, most active, pre-market
   lists, new highs and lows), news, stock info, watchlists, Setup Check and a market clock.
 - **One data connection.** Everything runs in one process on one market-data websocket: Alpaca by
-  default, or Charles Schwab, which is free with a brokerage account.
+  default, or Charles Schwab, which is free with a brokerage account. Providers sit behind one
+  `DataFeed` interface, so anything that can stream 1-minute bars and answer for history can be
+  plugged in: see [adding a data provider](USER_GUIDE.md#adding-a-data-provider).
 - **A feed for other programs.** `ws://localhost:7777/ws/alerts`, with server-side filters by
   source, setup or symbol.
 - **Extensible.** Optional engine plugins can add built-in setups and data providers
@@ -84,6 +87,9 @@ runs on. Alerts, parameters, a plain-English summary and a per-stock check are t
   - a Charles Schwab brokerage account, free, using `DATA_PROVIDER=schwab`. See the
     [user guide](USER_GUIDE.md#step-3-add-your-alpaca-keys) for the one-time login, which Schwab
     expires every 7 days.
+
+Those two ship because they are the two the project runs on and tests against. Another provider is
+one class and one line in a registry: [adding a data provider](USER_GUIDE.md#adding-a-data-provider).
 
 Tested on Windows. macOS and Linux should work through `start_scanner.sh`.
 
@@ -160,7 +166,7 @@ alert archives) are left alone. Release notes call out anything that needs a one
 |---|---|---|
 | `ALPACA_API_KEY`, `ALPACA_SECRET_KEY` | none | Alpaca market data and Benzinga news |
 | `ALPACA_FEED` | `sip` | `sip` (paid, consolidated tape) or `iex` (free, one exchange) |
-| `DATA_PROVIDER` | `alpaca` | `alpaca` or `schwab` |
+| `DATA_PROVIDER` | `alpaca` | `alpaca`, `schwab`, or a provider you add yourself |
 | `SCHWAB_APP_KEY`, `SCHWAB_APP_SECRET`, `SCHWAB_CALLBACK_URL` | none | Charles Schwab market data |
 | `NEWS_RSS_SOURCES` | `yahoo,nasdaq` | Free per-symbol news feeds. Empty turns them off |
 

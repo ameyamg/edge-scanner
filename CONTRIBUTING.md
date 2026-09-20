@@ -91,7 +91,13 @@ them in the frontend.
 Implement the `DataFeed` interface in `scanner/data/interface.py` and register the class in
 `scanner/data/__init__.py`. `scanner/data/schwab.py` is a worked example, including its own parquet
 cache folder so two providers can never mix their bars. A provider must be selectable with
-`DATA_PROVIDER` and must not change any signal code.
+`DATA_PROVIDER` and must not change any signal code. The user guide has the full checklist under
+[Adding a data provider](USER_GUIDE.md#adding-a-data-provider), including the parity run every new
+provider should pass before anyone trades on it.
+
+Only Alpaca and Schwab ship, because those are the two that are tested against live data. A pull
+request adding another is welcome, and should say what was verified: a session of live bars, and a
+history comparison against a provider that is already supported.
 
 ## Pull requests
 

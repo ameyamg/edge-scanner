@@ -18,8 +18,9 @@ multi-window browser dashboard.
 7. [Scripts Reference](#7-scripts-reference)
 8. [Data and Files](#8-data-and-files)
 9. [For Developers: Alert Feed](#9-for-developers-alert-feed)
-10. [Troubleshooting](#10-troubleshooting)
-11. [Disclaimer](#11-disclaimer)
+10. [Adding a data provider](#10-adding-a-data-provider)
+11. [Troubleshooting](#11-troubleshooting)
+12. [Disclaimer](#12-disclaimer)
 
 ---
 
@@ -431,7 +432,81 @@ Custom setup ids are stable: renaming a setup in the dashboard changes only its 
 
 ---
 
-## 10. Troubleshooting
+## 10. Adding a data provider
+
+Two providers ship: **Alpaca** and **Charles Schwab**. They ship because they are the two this
+project actually runs on and is tested against, live, every session. Nothing about the engine is
+tied to them: providers sit behind one interface, so any service that can stream 1-minute bars and
+answer for history can be plugged in, including Polygon, Databento, Tradier, Interactive Brokers or
+your own broker's API.
+
+Adding one is a class and a line in a registry. Judging whether its data is good enough is the part
+that takes real work, so this section covers both.
+
+### The interface
+
+Implement `DataFeed` in `scanner/data/interface.py`:
+
+| Method | What it must return |
+|---|---|
+| `get_historical_daily(symbol, start, end)` | Daily OHLCV as a UTC-indexed DataFrame with `open, high, low, close, volume, vwap, trade_count` |
+| `get_historical_bars(symbol, timeframe, start, end)` | The same shape for an intraday timeframe |
+| `subscribe_minute_bars(symbols, callback)` | Start the stream; call `callback(bar)` once per closed 1-minute bar |
+| `get_snapshot(symbols)` | Latest quote and trade per symbol |
+| `stop_stream()` | Stop the stream (optional, default does nothing) |
+
+The warmup also uses batch helpers where a provider has them: `get_historical_daily_multi`,
+`get_historical_bars_multi`, `get_todays_bars`, `get_todays_bars_multi`. Without them, a full
+universe takes a long time to warm up, as Schwab shows: it allows one symbol per history request, so
+it threads and throttles instead of batching.
+
+Register it in `scanner/data/__init__.py`:
+
+```python
+_BUILTIN = {"schwab": "scanner.data.schwab:SchwabFeed", "yours": "scanner.data.yours:YourFeed"}
+```
+
+Then `DATA_PROVIDER=yours` in `.env`, or `python scripts/run_live.py --feed yours`. No signal code
+changes. `scanner/data/schwab.py` is the worked example, rate limiter and all.
+
+### What to get right
+
+These are where the bugs live. Each one has cost this project real time:
+
+- **Split adjustment.** Request adjusted history, and never mix adjusted and raw bars in one cache.
+  A reverse split in raw bars made a $3.5M/day stock look like a $194M/day stock and corrupted every
+  average, level and ATR built from it.
+- **Its own cache folder.** Schwab writes under `data/schwab/`, Alpaca under `data/daily_split` and
+  `data/5m_split`. Two providers sharing a cache silently poison each other's history.
+- **Bar timestamps are the bar's START, in UTC.** A bar labelled 15:30 covers 15:30:00 to 15:30:59
+  and cannot exist before 15:31:00. Deliver it once, when it closes.
+- **Extended hours.** Premarket and after-hours bars must be included; the engine decides what to do
+  with them. Missing premarket bars break gap and premarket levels.
+- **One stream.** The whole process shares one connection. Do not open a second one anywhere.
+- **Rate limits and retries.** Back off on 429 and 5xx rather than dropping bars silently.
+- **Enough history.** The relative-volume profile wants 20 trading days of 5-minute bars, and the
+  200-period moving averages want a year of daily bars. A provider with a short lookback will run,
+  but RVOL and the long averages stay empty or wrong.
+
+### Prove it before you trade on it
+
+Run the new provider beside a known one and compare, the way Schwab was checked before it shipped:
+
+```bash
+python scripts/compare_universes.py --a alpaca:alpaca --b yours:nasdaq
+```
+
+It builds a universe with each provider and explains every difference. What Schwab had to reach
+before it was accepted: 97% or better overlap at every threshold set, with the remaining differences
+explained, and at least 20 trading days of 5-minute history. Prices agreed to the cent on the median
+stock. Then watch a live session side by side and check the alerts line up.
+
+Until a provider passes that, treat it as untested: the thresholds and the sample setups were tuned
+on Alpaca's consolidated tape, and a thinner feed changes what fires.
+
+---
+
+## 11. Troubleshooting
 
 **The dashboard page is blank or returns 404.** The dashboard has not been built. Run
 `npm --prefix dashboard-v2 install` and `npm --prefix dashboard-v2 run build`, then reload.
@@ -465,7 +540,7 @@ minutes. They are skipped when you run with `--no-fundamentals`.
 
 ---
 
-## 11. Disclaimer
+## 12. Disclaimer
 
 This is educational software. It is not financial advice and does not recommend buying or selling any
 security. Alerts are the output of mechanical rules and can be wrong, late, or based on bad data. The
