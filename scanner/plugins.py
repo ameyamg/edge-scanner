@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import importlib
 import logging
+import os
 from dataclasses import dataclass
 from types import ModuleType
 from typing import Optional
@@ -36,7 +37,15 @@ class SystemSetup:
     evaluator: str = "_system_evaluator"   # LiveScanner attribute that runs it
 
 
+# Set SCANNER_NO_PLUGINS=1 to run the core as if no plugin were installed. It is how the
+# owner's checkout reproduces the public build (for release screenshots, or to see what a
+# user without the plugin sees) without deleting anything.
+_DISABLED = (os.environ.get("SCANNER_NO_PLUGINS") or "").strip().lower() in ("1", "true", "yes")
+
+
 def _optional(name: str) -> Optional[ModuleType]:
+    if _DISABLED:
+        return None
     try:
         return importlib.import_module(name)
     except ModuleNotFoundError as exc:
