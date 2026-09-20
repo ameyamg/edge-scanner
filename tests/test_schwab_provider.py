@@ -122,3 +122,110 @@ def test_four_hour_bars_are_built_from_30_minute_candles(tmp_path):
                                            for i in range(8)]})
     df = _feed(tmp_path, C()).get_bars_range("AAA", "4Hour", date(2026, 1, 5), date(2026, 1, 5))
     assert len(df) == 2 and df["volume"].sum() == 800 and df["high"].max() == 18
+
+
+# ── Schwab's 300-symbol cap on the 1-minute bar stream ───────────────────────
+
+def test_parse_symbol_cap_reads_schwabs_code_19():
+    from scanner.data.schwab import SchwabFeed
+    over = {"response": [{"service": "CHART_EQUITY", "command": "ADD", "content": {
+        "code": 19, "msg": "You've reached the maximum number of symbols allowed.  (CHART_EQUITY=300, DISCARDED=250)"}}]}
+    ok = {"response": [{"service": "CHART_EQUITY", "command": "ADD", "content": {"code": 0, "msg": "ADD command succeeded"}}]}
+    assert SchwabFeed.parse_symbol_cap(over) == 300
+    assert SchwabFeed.parse_symbol_cap(ok) is None
+    assert SchwabFeed.parse_symbol_cap("not json") is None
+
+
+def _fake_feed(monkeypatch, sent, quotes=None):
+    """A SchwabFeed with no network: a recording stream and a canned quotes API."""
+    import sys, threading, types
+    from scanner.data.schwab import SchwabFeed
+
+    class FakeStream:
+        receiver = None
+        def __init__(self, client): pass
+        def start(self, receiver, daemon=True): FakeStream.receiver = receiver
+        def chart_equity(self, keys, fields): return ("CHART_EQUITY", list(keys))
+        def level_one_equities(self, keys, fields): return ("LEVELONE_EQUITIES", list(keys))
+        def send(self, req): sent.append(req)
+        def stop(self): pass
+
+    class FakeResp:
+        status_code = 200
+        def __init__(self, syms): self._syms = syms
+        def json(self): return {sym: {"quote": dict(quotes or {})} for sym in self._syms}
+
+    monkeypatch.setitem(sys.modules, "schwabdev", types.SimpleNamespace(Stream=FakeStream))
+    feed = SchwabFeed.__new__(SchwabFeed)
+    feed._client = types.SimpleNamespace(quotes=lambda symbols, fields: FakeResp(symbols))
+    feed._stream, feed._stop_evt = None, threading.Event()
+    feed.streamed_symbols, feed.unstreamed_symbols = [], []
+    feed.quote_streamed_symbols, feed.polled_symbols, feed.quote_bars = [], [], None
+    feed._stop_evt.set()                                   # return right after subscribing
+    monkeypatch.setattr(feed._stop_evt, "clear", lambda: None)
+    return feed, FakeStream
+
+
+def test_large_universe_is_covered_in_three_tiers_in_the_order_given(monkeypatch, capsys):
+    sent = []
+    feed, _ = _fake_feed(monkeypatch, sent)
+    symbols = [f"S{i}" for i in range(4000)]
+    feed.subscribe_minute_bars(symbols, lambda bar: None)
+
+    chart = [k for svc, keys in sent if svc == "CHART_EQUITY" for k in keys]
+    quotes = [k for svc, keys in sent if svc == "LEVELONE_EQUITIES" for k in keys]
+    assert chart == symbols[:300]                          # real bars: the first 300
+    assert quotes == symbols[300:3300]                     # live quotes: the next 3,000
+    assert feed.polled_symbols == symbols[3300:]           # polled quotes: the rest
+    assert feed.unstreamed_symbols == []                   # nothing is left unscanned
+    assert "Schwab coverage: 300 symbols on real 1-minute bars" in capsys.readouterr().out
+
+
+def test_synthetic_bars_off_falls_back_to_the_first_300_and_says_so(monkeypatch, capsys):
+    monkeypatch.setenv("SCHWAB_SYNTHETIC_BARS", "0")
+    sent = []
+    feed, _ = _fake_feed(monkeypatch, sent)
+    symbols = [f"S{i}" for i in range(1000)]
+    feed.subscribe_minute_bars(symbols, lambda bar: None)
+
+    assert [k for svc, keys in sent for k in keys] == symbols[:300]
+    assert feed.unstreamed_symbols == symbols[300:] and feed.polled_symbols == []
+    assert "700 of your 1,000 symbols are NOT being scanned" in capsys.readouterr().out
+
+
+def test_small_universe_uses_real_bars_only(monkeypatch):
+    sent = []
+    feed, _ = _fake_feed(monkeypatch, sent)
+    feed.subscribe_minute_bars([f"S{i}" for i in range(120)], lambda bar: None)
+    assert {svc for svc, _ in sent} == {"CHART_EQUITY"}
+    assert feed.quote_streamed_symbols == [] and feed.polled_symbols == []
+
+
+def test_streamed_quotes_become_bars_through_the_same_callback(monkeypatch):
+    from scanner.data.quote_bars import QuoteBarBuilder
+    from scanner.data.schwab import SchwabFeed
+    bars = []
+    t = [600_000 * 60.0]
+    b = QuoteBarBuilder(bars.append, lambda: t[0])
+    b.track("MU", grace=3.0)
+    msg = lambda **f: {"data": [{"service": "LEVELONE_EQUITIES", "content": [{"key": "MU", **f}]}]}
+    SchwabFeed.handle_quotes(msg(**{"3": 100.0, "8": 5000, "10": 101.0, "11": 99.0}), b)
+    t[0] += 5
+    SchwabFeed.handle_quotes(msg(**{"8": 5400}), b)                    # only what changed
+    t[0] += 5
+    SchwabFeed.handle_quotes(msg(**{"3": 100.6, "8": 5900}), b)
+    t[0] += 70
+    b.flush()
+    assert len(bars) == 1
+    assert (bars[0]["open"], bars[0]["close"], bars[0]["volume"]) == (100.0, 100.6, 900)
+
+
+def test_quote_stream_cap_moves_the_overflow_to_polling(monkeypatch):
+    sent = []
+    feed, stream_cls = _fake_feed(monkeypatch, sent)
+    symbols = [f"S{i}" for i in range(3500)]
+    feed.subscribe_minute_bars(symbols, lambda bar: None)
+    stream_cls.receiver({"response": [{"service": "LEVELONE_EQUITIES", "command": "ADD", "content": {
+        "code": 19, "msg": "You've reached the maximum number of symbols allowed.  (LEVELONE_EQUITIES=2000, DISCARDED=250)"}}]})
+    assert feed.quote_streamed_symbols == symbols[300:2300]
+    assert feed.polled_symbols == symbols[2300:]          # overflow first, then the original tail

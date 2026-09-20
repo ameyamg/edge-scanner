@@ -80,7 +80,23 @@ it.
 
 #### Optional: Charles Schwab as the data provider
 
-A Schwab brokerage account includes market data, so it can replace the paid Alpaca SIP plan.
+A Schwab brokerage account includes market data, so it can replace the paid Alpaca SIP plan. The
+setups, alerts, conditions and parameters are the same on both providers. What differs is how the
+1-minute bars arrive, because **Schwab streams real 1-minute bars for at most 300 symbols per
+account**. The scanner ranks your universe by dollar volume and covers all of it in three tiers:
+
+| Symbols (most liquid first) | Where the bars come from | How close to a real bar |
+|---|---|---|
+| 1 to 300 | Schwab's 1-minute bar stream | Real bars |
+| 301 to 3,300 | Built from Schwab's live quote stream | Open, close and volume match closely; a spike that appears and reverts inside a fraction of a second can be missed |
+| 3,301 and up | Built from quotes polled every 10 seconds | Open, close and volume are good; high and low are approximate, except a new high or low of the day, which is exact |
+
+A universe of 300 symbols or fewer runs entirely on real bars. On a larger one, expect alerts built on
+closing prices and volume to agree with Alpaca's, and alerts built on the exact high or low of a bar
+(breakouts, wicks) to differ now and then in the lower tiers. Start the scanner **before the open**:
+Schwab allows one symbol per history request, so only the 600 most liquid symbols are back-filled
+with today's bars at startup, and the rest build their session from the live feed. To scan only the
+first 300 symbols on real bars, set `SCHWAB_SYNTHETIC_BARS=0` in `.env`.
 It is newer than the Alpaca path. Alpaca keys, if you keep them in `.env`, still supply the Benzinga
 news; without them news comes from the free Yahoo and Nasdaq feeds.
 

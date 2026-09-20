@@ -44,6 +44,7 @@ sys.path.insert(0, str(_REPO_ROOT))
 load_dotenv(override=True)
 
 from scanner.api import AppState, bind_sockets, create_app
+from scanner.feed_hub import FeedHub
 from scanner.data import FEEDS, make_feed
 from scanner.live_scanner import LiveScanner
 from scanner.market import classify_market
@@ -341,6 +342,12 @@ def main() -> None:
     parser.add_argument("--no-fundamentals", action="store_true",
                         help="Skip the Dashboard V2 yfinance fundamentals prefetch (background "
                              "thread after warmup; never blocks scanning).")
+    parser.add_argument("--port", type=int, default=7777,
+                        help="Port for the dashboard, API and unified feed (default 7777). A second "
+                             "scanner, for example one on another data provider, needs its own port.")
+    parser.add_argument("--alerts-dir", default="data/alerts",
+                        help="Folder for the alert archive (default data/alerts). Give a second scanner "
+                             "its own folder so the two archives never mix.")
     parser.add_argument("--host", default="127.0.0.1",
                         help="Address the API and feeds bind to. Default is this machine only. "
                              "The API has no authentication: bind a LAN address only on a network you trust.")
@@ -400,7 +407,8 @@ def main() -> None:
     # ── 5. Warmup ─────────────────────────────────────────────────────────────
     _step(5, TOTAL_STEPS, "Warming up scanner ...")
     scanner = LiveScanner(symbols, feed, sector_map=sector_map)
-    app_state = AppState(scanner=scanner, feed=feed, keep_days=args.keep_days)
+    app_state = AppState(scanner=scanner, feed=feed, keep_days=args.keep_days,
+                         hub=FeedHub(store_dir=Path(args.alerts_dir) / "all", keep_days=args.keep_days))
     # Dashboard V2: shared HOD/LOD event buffer. Created here so the API (api_v2)
     # and the post-bar hook below see the same instance.
     event_buffer = EventBuffer()
@@ -487,7 +495,7 @@ def main() -> None:
         }
     seeded_from_bars: set[str] = set()
     try:
-        all_syms = list(scanner._states.keys())
+        all_syms = scanner.ranked_symbols()      # most liquid first: a provider may seed only the top
         today_bars = feed.get_todays_bars_multi(all_syms, "1Min")
         for sym, sym_bars in today_bars.items():
             state = scanner._states.get(sym)
@@ -525,16 +533,16 @@ def main() -> None:
         start_background_prefetch(list(scanner._states.keys()))
         print("       Dashboard V2: fundamentals prefetch running in background (--no-fundamentals to skip)", flush=True)
     _api_app = create_app(app_state)
-    print("       Dashboard V2: http://localhost:7777/v2  (build: npm --prefix dashboard-v2 run build)", flush=True)
-    _server_cfg = uvicorn.Config(_api_app, host=args.host, port=7777, log_level="warning")
+    print(f"       Dashboard V2: http://localhost:{args.port}/v2  (build: npm --prefix dashboard-v2 run build)", flush=True)
+    _server_cfg = uvicorn.Config(_api_app, host=args.host, port=args.port, log_level="warning")
     _api_server = uvicorn.Server(_server_cfg)
-    _api_socks = bind_sockets(args.host, 7777)
+    _api_socks = bind_sockets(args.host, args.port)
     _api_thread = threading.Thread(target=_api_server.run, kwargs={"sockets": _api_socks},
                                    daemon=True, name="api-server")
     _api_thread.start()
-    print("       Dashboard: http://localhost:7777", flush=True)
-    print("       Unified feed: ws://localhost:7777/ws/alerts  (filters: sources, setups, triggers, symbols, "
-          "direction, min_score; archive data/alerts/all)", flush=True)
+    print(f"       Dashboard: http://localhost:{args.port}", flush=True)
+    print(f"       Unified feed: ws://localhost:{args.port}/ws/alerts  (filters: sources, setups, triggers, "
+          f"symbols, direction, min_score; archive {args.alerts_dir}/all)", flush=True)
 
     # ── 5e. Optional plugin setups, then custom setups ────────────────────────
     # A plugin may attach its own evaluators on the same stream and hand back

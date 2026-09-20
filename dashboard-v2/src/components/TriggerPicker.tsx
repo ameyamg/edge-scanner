@@ -14,6 +14,12 @@ export function TriggerPicker({ catalog, value, onChange, onClose }: {
   const [qs, setQs] = useState('')
   const [info, setInfo] = useState<TriggerDef | null>(null)
   const selectedIds = useMemo(() => new Set(value.map(t => t.id)), [value])
+  // Closing the picker (Escape, the X, Done, the backdrop) returns focus to the
+  // control that opened it, so keyboard use continues where it left off.
+  useEffect(() => {
+    const opener = document.activeElement as HTMLElement | null
+    return () => { if (opener && document.contains(opener)) opener.focus() }
+  }, [])
   // The picker is the topmost modal, so Escape is its key: close the (?) panel
   // first, then the picker. Config ignores Escape while the picker is open.
   useEffect(() => {

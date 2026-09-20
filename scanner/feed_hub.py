@@ -46,6 +46,13 @@ _POLL = 0.05
 # reconnects, gets the replay, and dedupes on `seq`, so nothing is lost quietly.
 _CLIENT_QUEUE = 1000
 _SEND_TIMEOUT = 5.0
+# Fan-out is chunked so a burst bigger than an outbox cannot make a HEALTHY client
+# look slow: after each chunk the loop yields so senders drain, and waits briefly
+# (bounded) while any outbox is over half full. A stalled client still fills up
+# and is dropped; the wait never depends on its socket.
+_FANOUT_CHUNK = 100
+_FANOUT_BREATH = 0.02
+_REPLAY_LIMIT = 500
 _BUFFER = 5000
 
 
@@ -158,7 +165,7 @@ class _Client:
     sent: int = 0
     connected_at: float = field(default_factory=lambda: __import__("time").time())
     close: Any = None               # async callable() that closes the socket, optional
-    outbox: Any = None              # asyncio.Queue[str], created by the broadcast loop
+    outbox: Any = None              # asyncio.Queue[str]; the ONLY path to the socket
     task: Any = None                # the sender task draining `outbox`
 
 
@@ -210,6 +217,7 @@ class FeedHub:
         self._next_id = 1
         self.published = 0
         self.dropped_clients = 0           # disconnected for being too slow
+        self._closing: set = set()         # close handshakes in flight (kept referenced)
         if load_persisted:
             for a in self.store.load_recent():
                 self.recent.append(a)
@@ -238,12 +246,34 @@ class FeedHub:
         out = [a for a in reversed(items) if sub.matches(a)]
         return out[:limit]
 
-    def add_client(self, send, sub: Subscription, name: str = "", close=None) -> int:
+    def add_client(self, send, sub: Subscription, name: str = "", close=None, replay: bool = False) -> int:
+        """Register a subscriber. With `replay`, the replay frame is queued first.
+
+        The high-water mark (`since`) and the replay snapshot are taken under the
+        same lock publish() holds while it assigns `seq` and appends to `recent`,
+        so every alert is in exactly one of the two: the replay, or the live
+        stream. The replay goes through the outbox like everything else, so one
+        sender owns every write to the socket and frames cannot interleave.
+        """
         with self._lock:
             cid = self._next_id
             self._next_id += 1
-            self._clients[cid] = _Client(send=send, sub=sub, name=name, since=self.published, close=close)
+            c = _Client(send=send, sub=sub, name=name, since=self.published, close=close,
+                        outbox=asyncio.Queue(maxsize=_CLIENT_QUEUE))
+            if replay:
+                matching = [a for a in reversed(self.recent) if sub.matches(a)]
+                c.outbox.put_nowait(json.dumps({
+                    "type": "replay", "alerts": matching[:_REPLAY_LIMIT], "filter": sub.describe(),
+                    # True when older matching alerts did not fit: the client has a
+                    # gap it can only fill from /api/alerts or the archive.
+                    "truncated": len(matching) > _REPLAY_LIMIT,
+                }))
+            self._clients[cid] = c
         return cid
+
+    def _ensure_sender(self, cid: int, c: _Client) -> None:
+        if c.task is None:
+            c.task = asyncio.create_task(self._sender(cid, c))
 
     def remove_client(self, cid: int) -> None:
         with self._lock:
@@ -275,20 +305,26 @@ class FeedHub:
                 continue
             with self._lock:
                 clients = list(self._clients.items())
-            for a in batch:
+            for n, a in enumerate(batch, 1):
                 msg = None
                 for cid, c in clients:
                     if int(a.get("seq") or 0) <= c.since or not c.sub.matches(a):
                         continue          # already in that client's replay, or filtered out
                     if msg is None:
                         msg = json.dumps({"type": "alert", "alert": a})
-                    if c.outbox is None:
-                        c.outbox = asyncio.Queue(maxsize=_CLIENT_QUEUE)
-                        c.task = asyncio.create_task(self._sender(cid, c))
+                    with self._lock:
+                        if cid not in self._clients:
+                            continue      # dropped earlier in this batch
+                    self._ensure_sender(cid, c)
                     try:
-                        c.outbox.put_nowait(msg)      # never awaits: a slow client cannot stall the loop
+                        c.outbox.put_nowait(msg)      # never awaits a socket
                     except asyncio.QueueFull:
-                        await self._drop(cid, c, "outbox full")
+                        self._drop(cid, c, "outbox full")
+                if n % _FANOUT_CHUNK == 0:
+                    await asyncio.sleep(0)            # let the senders drain
+                    if any(c.outbox.qsize() > _CLIENT_QUEUE // 2 for _, c in clients
+                           if c.task is not None and not c.task.done()):
+                        await asyncio.sleep(_FANOUT_BREATH)
 
     async def _sender(self, cid: int, c: _Client) -> None:
         """Drain one client's outbox in order, with a deadline on every send."""
@@ -300,11 +336,13 @@ class FeedHub:
         except asyncio.CancelledError:
             raise
         except asyncio.TimeoutError:
-            await self._drop(cid, c, f"send took over {_SEND_TIMEOUT:g}s")
+            self._drop(cid, c, f"send took over {_SEND_TIMEOUT:g}s")
         except Exception:
             self.remove_client(cid)               # socket already gone
 
-    async def _drop(self, cid: int, c: _Client, why: str) -> None:
+    def _drop(self, cid: int, c: _Client, why: str) -> None:
+        """Disconnect a client that is behind. Never awaits: the close handshake of
+        a stalled socket runs in its own task, off the fan-out loop."""
         with self._lock:
             if cid not in self._clients:
                 return
@@ -312,10 +350,14 @@ class FeedHub:
         log.warning("feed: dropping slow client %d %s (%s); it can reconnect and replay", cid, c.name, why)
         self.remove_client(cid)
         if c.close is not None:
-            try:
-                await asyncio.wait_for(c.close(), 1.0)
-            except Exception:
-                pass
+            async def _close() -> None:
+                try:
+                    await asyncio.wait_for(c.close(), 1.0)
+                except Exception:
+                    pass
+            t = asyncio.create_task(_close())
+            self._closing.add(t)
+            t.add_done_callback(self._closing.discard)
 
     async def serve(self, ws, params: Any, name: str = "") -> None:
         """Run one WebSocket client until it disconnects (FastAPI / Starlette)."""
@@ -323,11 +365,10 @@ class FeedHub:
         sub = Subscription.from_params(params)
         await ws.accept()
         cid = self.add_client(ws.send_text, sub, name or (ws.client.host if ws.client else ""),
-                              close=lambda: ws.close(code=1013))
+                              close=lambda: ws.close(code=1013), replay=True)
         log.info("feed: client %d connected %s (%d total)", cid, sub.describe(), len(self._clients))
         try:
-            recent = self.recent_for(sub)
-            await ws.send_text(json.dumps({"type": "replay", "alerts": recent, "filter": sub.describe()}))
+            self._ensure_sender(cid, self._clients[cid])      # sends the queued replay first
             while True:
                 await ws.receive_text()
         except WebSocketDisconnect:

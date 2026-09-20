@@ -335,8 +335,12 @@ class LiveScanner:
             float(vwap) if vwap is not None else None,
         )
 
-    def _roll_session_if_new_day(self, bar: dict) -> None:
+    def _roll_session_if_new_day(self, bar: dict) -> bool:
         """Reset intraday state when the first bar of a new ET date arrives.
+
+        Returns False for a bar that belongs to an EARLIER date than the session
+        in progress (a late or replayed bar): the caller must drop it, because it
+        would add yesterday's volume and prices to today's VWAP, volume and HOD/LOD.
 
         A process left running overnight used to carry yesterday's VWAP, volume,
         HOD/LOD and opening price into the new session. Startup seeding calls
@@ -348,17 +352,23 @@ class LiveScanner:
                 ts = ts.tz_localize("UTC")
             day = ts.tz_convert("America/New_York").strftime("%Y-%m-%d")
         except Exception:
-            return
+            return True
         prev = getattr(self, "_session_day", None)
-        if prev is None or day <= prev:       # a late bar never rolls the session back
-            if prev is None:
-                self._session_day = day
-            return
+        if prev is None:
+            self._session_day = day
+            return True
+        if day < prev:
+            log.warning("Dropped a %s bar dated %s: the session in progress is %s",
+                        bar.get("symbol", "?"), day, prev)
+            return False
+        if day == prev:
+            return True
         log.warning("New session %s (was %s): intraday state reset. Daily context "
                     "(prior close, ADV, volume profile) is from the last warmup; "
                     "restart to refresh it.", day, prev)
         self.reset_session()
         self._session_day = day
+        return True
 
     # ── Bar routing ───────────────────────────────────────────────────────────
 
@@ -372,7 +382,8 @@ class LiveScanner:
             bar: dict with keys symbol, timestamp, open, high, low, close, volume
         """
         symbol: str = bar.get("symbol", "")
-        self._roll_session_if_new_day(bar)
+        if not self._roll_session_if_new_day(bar):
+            return
 
         if symbol == "SPY":
             if self._spy_state is None:
@@ -482,6 +493,23 @@ class LiveScanner:
             # a minute is the number that has to fit inside the bar cadence.
             bar_timer.record_bar(str(bar.get("timestamp", ""))[:16], _end - _bar0)
 
+    def ranked_symbols(self) -> list[str]:
+        """Loaded symbols, most liquid first (20-day average dollar volume).
+
+        A provider that caps its best data tier, as Schwab does at 300 real-bar
+        symbols, is served in this order, so the names that matter get the best
+        data. The universe loader returns symbols alphabetically, so the order
+        has to be made here.
+        """
+        def _dollar_volume(sym: str) -> float:
+            st = self._states[sym]
+            try:
+                v = float(st.adv20 or 0.0) * float(st.prior_close or 0.0)
+            except (TypeError, ValueError):
+                return 0.0
+            return v if v == v else 0.0
+        return sorted(self._states.keys(), key=lambda sym: (-_dollar_volume(sym), sym))
+
     # ── Connection ────────────────────────────────────────────────────────────
 
     def connect(self) -> None:
@@ -493,7 +521,7 @@ class LiveScanner:
         """
         if not self._states:
             log.warning("connect() called before warmup — no symbols loaded")
-        all_symbols = ["SPY"] + list(self._states.keys())
+        all_symbols = ["SPY"] + [sym for sym in self.ranked_symbols() if sym != "SPY"]
         log.info("Connecting to live feed for %d symbols", len(all_symbols))
         self.feed.subscribe_minute_bars(all_symbols, self._on_bar)
 

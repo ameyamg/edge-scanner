@@ -74,8 +74,13 @@ def bind_sockets(host: str, port: int) -> list:
     """
     import socket
     targets = [(socket.AF_INET, "127.0.0.1"), (socket.AF_INET6, "::1")] if host == DEFAULT_HOST         else [(socket.AF_INET6 if ":" in host else socket.AF_INET, host)]
+    import errno
+    # "This machine has no IPv6", as opposed to "the port is taken" (10047 / 10049
+    # are the Windows codes for the first two).
+    no_ipv6 = {errno.EAFNOSUPPORT, errno.EADDRNOTAVAIL, getattr(errno, "EPROTONOSUPPORT", -1), 10047, 10049}
     out = []
     for family, addr in targets:
+        s = None
         try:
             s = socket.socket(family, socket.SOCK_STREAM)
             if family == socket.AF_INET6:
@@ -84,12 +89,18 @@ def bind_sockets(host: str, port: int) -> list:
             s.listen(128)
             s.setblocking(False)
             out.append(s)
-        except OSError:
-            if family == socket.AF_INET6 and out:
-                continue              # IPv6 disabled on this machine: IPv4 loopback is enough
+        except OSError as exc:
+            if s is not None:
+                s.close()
+            code = exc.errno if exc.errno is not None else getattr(exc, "winerror", None)
+            if family == socket.AF_INET6 and out and code in no_ipv6:
+                log.warning("IPv6 loopback unavailable (%s): serving on 127.0.0.1 only. "
+                            "Clients using `localhost` may connect slowly.", exc)
+                continue
             for o in out:
                 o.close()
-            raise
+            raise OSError(exc.errno, f"cannot listen on [{addr}]:{port}: {exc.strerror or exc}. "
+                                     "Is another scanner, or another program, already using that port?") from exc
     return out
 
 

@@ -21,6 +21,12 @@ Known differences from AlpacaFeed, all deliberate:
     with check_schwab_match.py before relying on it for the 20-day RVOL profile.
   * The refresh token expires every 7 days and re-auth opens a browser
     (Schwab's rule, not schwabdev's). Unattended runs WILL eventually stop.
+  * SCHWAB STREAMS 1-MINUTE BARS FOR AT MOST 300 SYMBOLS PER ACCOUNT
+    (CHART_EQUITY; measured 2026-09-20, the streamer answers code 19 and
+    discards the rest). Alpaca's paid feed has no such cap. Symbols past the cap
+    get no live bars, so subscribe_minute_bars takes them in the order given
+    (the universe file is sorted by dollar volume, most liquid first), says
+    loudly how many were left out, and exposes them as `unstreamed_symbols`.
 
 Credentials (add to .env yourself, never commit):
     SCHWAB_APP_KEY=...
@@ -130,6 +136,36 @@ def _covers(df: pd.DataFrame, start: date, slack_days: int = 6) -> bool:
     return (first - start).days <= slack_days
 
 
+def _num(v) -> float | None:
+    """A quote field as a float, or None when it is missing or not a number."""
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return None
+    return f if f == f else None
+
+
+def _fresh(path: Path, df: pd.DataFrame, end: date) -> bool:
+    """True when a cached frame does not need re-downloading.
+
+    Schwab serves ONE symbol per history request at about 120 requests a minute,
+    so re-downloading a whole-market universe every morning costs hours. A file
+    is fresh when its data already reaches the last session on or before `end`
+    (a Monday premarket start is served by Friday's bars), or when it was
+    written today (covers symbols that simply did not trade that session).
+    """
+    if df is None or df.empty:
+        return False
+    target = end
+    while target.weekday() >= 5:                       # roll a weekend back to Friday
+        target = date.fromordinal(target.toordinal() - 1)
+    last = pd.Timestamp(df.index.max())
+    last_day = last.tz_convert(_ET).date() if last.tzinfo is not None else last.date()
+    if last_day >= target:
+        return True
+    return datetime.fromtimestamp(path.stat().st_mtime).date() >= date.today()
+
+
 class SchwabFeed(DataFeed):
     """DataFeed implementation over the Schwab market-data API."""
 
@@ -171,6 +207,11 @@ class SchwabFeed(DataFeed):
             )
         self._stream = None
         self._stop_evt = threading.Event()
+        self.streamed_symbols: list[str] = []      # live 1-min bars (Schwab caps these)
+        self.unstreamed_symbols: list[str] = []    # asked for, but past Schwab's cap
+        self.quote_streamed_symbols: list[str] = []   # bars built from the live quote stream
+        self.polled_symbols: list[str] = []           # bars built from polled quotes
+        self.quote_bars = None                        # the QuoteBarBuilder, once streaming
 
     # ── Candle parsing ────────────────────────────────────────────────────────
 
@@ -241,9 +282,9 @@ class SchwabFeed(DataFeed):
         # Reuse today's file only if it reaches back far enough: the universe
         # build and the warmup ask for different spans on the same morning.
         p = self._cache_dir / f"{symbol}.parquet"
-        if p.exists() and datetime.fromtimestamp(p.stat().st_mtime).date() >= date.today():
+        if p.exists():
             cached = parquet.load(symbol, self._cache_dir)
-            if _covers(cached, start):
+            if _covers(cached, start) and _fresh(p, cached, end):
                 return cached
         df = self._price_history(symbol, "Day", start, end)
         parquet.save(symbol, df, self._cache_dir)
@@ -252,9 +293,9 @@ class SchwabFeed(DataFeed):
     def get_historical_bars(self, symbol: str, timeframe: Timeframe,
                             start: date, end: date) -> pd.DataFrame:
         p = self._intraday_cache_dir / f"{symbol}.parquet"
-        if p.exists() and datetime.fromtimestamp(p.stat().st_mtime).date() >= date.today():
+        if p.exists():
             cached = parquet.load(symbol, self._intraday_cache_dir)
-            if _covers(cached, start):
+            if _covers(cached, start) and _fresh(p, cached, end):
                 return cached
         df = self._price_history(symbol, timeframe, start, end)
         parquet.save(symbol, df, self._intraday_cache_dir)
@@ -271,7 +312,19 @@ class SchwabFeed(DataFeed):
 
     def get_todays_bars_multi(self, symbols: list[str],
                               timeframe: Timeframe = "1Min") -> dict[str, pd.DataFrame]:
-        """One request per symbol (Schwab has no batch endpoint), threaded."""
+        """One request per symbol (Schwab has no batch endpoint), threaded.
+
+        At about 120 requests a minute a whole-market universe would hold the
+        start up for close to an hour, so only the first SEED_MAX_SYMBOLS are
+        seeded (the caller passes them most liquid first). The rest build their
+        session from the live feed: complete when the scanner starts before the
+        open, and from the start time onward when it starts mid-session.
+        """
+        if len(symbols) > self.SEED_MAX_SYMBOLS:
+            print(f"       Schwab: seeding today's bars for the {self.SEED_MAX_SYMBOLS} most liquid symbols "
+                  f"only (one request each). The other {len(symbols) - self.SEED_MAX_SYMBOLS:,} build VWAP, "
+                  f"volume and levels from the live feed, so start before the open.", flush=True)
+            symbols = symbols[: self.SEED_MAX_SYMBOLS]
         today = datetime.now(_ET).date()
         out: dict[str, pd.DataFrame] = {}
 
@@ -373,32 +426,192 @@ class SchwabFeed(DataFeed):
                 except (KeyError, TypeError, ValueError) as exc:
                     log.debug("Skipping malformed CHART_EQUITY payload: %s", exc)
 
+    # Schwab's per-account limits, measured against the live streamer 2026-09-20.
+    # The streamer's own answer (code 19) overrides these if Schwab changes them.
+    CHART_EQUITY_CAP = 300        # real 1-minute bars
+    LEVELONE_CAP = 3000           # live quotes
+    QUOTES_PER_REQUEST = 500      # REST quotes
+    POLL_SECONDS = 10.0           # one pass over the polled symbols
+    SEED_MAX_SYMBOLS = 600        # today's-bars seeding at startup: about 5 minutes
+
+    @staticmethod
+    def parse_symbol_cap(raw, service: str = "CHART_EQUITY") -> int | None:
+        """The cap Schwab reports when a subscription exceeds it, else None.
+
+        The streamer answers an over-limit ADD with code 19 and a message like
+        "You've reached the maximum number of symbols allowed.  (CHART_EQUITY=300,
+        DISCARDED=250)". It does NOT raise and keeps streaming the symbols it
+        had already accepted, which is why this has to be read explicitly.
+        """
+        import re
+        try:
+            msg = json.loads(raw) if isinstance(raw, (str, bytes)) else raw
+        except (TypeError, ValueError):
+            return None
+        for r in (msg or {}).get("response", []) or []:
+            content = r.get("content") or {}
+            if r.get("service") == service and content.get("code") == 19:
+                m = re.search(service + r"=(\d+)", str(content.get("msg") or ""))
+                if m:
+                    return int(m.group(1))
+                return SchwabFeed.CHART_EQUITY_CAP if service == "CHART_EQUITY" else SchwabFeed.LEVELONE_CAP
+        return None
+
+    @staticmethod
+    def handle_quotes(raw, builder) -> None:
+        """Feed LEVELONE_EQUITIES updates to a QuoteBarBuilder. Fields: 3 last
+        price, 8 total volume, 10 day high, 11 day low. The streamer sends only
+        the fields that changed, so any of them may be missing."""
+        try:
+            msg = json.loads(raw) if isinstance(raw, (str, bytes)) else raw
+        except (TypeError, ValueError):
+            return
+        for block in (msg or {}).get("data", []) or []:
+            if block.get("service") != "LEVELONE_EQUITIES":
+                continue
+            for c in block.get("content", []) or []:
+                try:
+                    builder.on_quote(c.get("key"), last=_num(c.get("3")), total_volume=_num(c.get("8")),
+                                     day_high=_num(c.get("10")), day_low=_num(c.get("11")))
+                except Exception as exc:
+                    log.debug("Skipping malformed LEVELONE payload: %s", exc)
+
     def subscribe_minute_bars(self, symbols: list[str],
                               callback: Callable[[dict], None]) -> None:
-        """Stream 1-min OHLCV via CHART_EQUITY. Blocks until stop_stream().
+        """Stream 1-minute bars for every symbol. Blocks until stop_stream().
+
+        Schwab serves real 1-minute bars (CHART_EQUITY) for at most 300 symbols
+        per account, so a larger universe is covered in three tiers, in the
+        order given (the universe file is sorted most liquid first):
+
+            first 300     real bars from CHART_EQUITY
+            next 3,000    bars built from the live quote stream (LEVELONE_EQUITIES)
+            the rest      bars built from REST quotes polled every POLL_SECONDS
+
+        See scanner/data/quote_bars.py for how a bar is built from quotes and how
+        close it is to a real one. Set SCHWAB_SYNTHETIC_BARS=0 to turn the second
+        and third tier off: only the first 300 symbols are then scanned.
 
         CHART_EQUITY field order (schwabdev translate.py, corrected against
         Schwab's own docs which are wrong): 0 key, 1 sequence, 2 open, 3 high,
         4 low, 5 close, 6 volume, 7 chart time (epoch ms), 8 chart day.
         """
+        from scanner.data.quote_bars import QuoteBarBuilder
         # schwabdev 4.0.0 exposes no Client.stream property; construct it.
         import schwabdev
         stream = schwabdev.Stream(self._client)
         self._stream = stream
         self._stop_evt.clear()
 
+        # Bars now arrive from three threads (stream, quote flush, poller) and the
+        # scanner's bar handler is not re-entrant: one bar at a time.
+        emit_lock = threading.Lock()
+
+        def _emit(bar: dict) -> None:
+            with emit_lock:
+                callback(bar)
+
+        synthetic = os.environ.get("SCHWAB_SYNTHETIC_BARS", "1").strip().lower() not in ("0", "false", "no", "off")
+        cap = self.CHART_EQUITY_CAP
+        self.streamed_symbols = list(symbols[:cap])
+        rest = list(symbols[cap:])
+        self.quote_streamed_symbols = rest[: self.LEVELONE_CAP] if synthetic else []
+        self.polled_symbols = rest[self.LEVELONE_CAP:] if synthetic else []
+        self.unstreamed_symbols = [] if synthetic else rest
+        self.quote_bars = builder = QuoteBarBuilder(_emit)
+        tiers_lock = threading.Lock()
+        for sym in self.quote_streamed_symbols:
+            builder.track(sym, grace=3.0)
+        for sym in self.polled_symbols:
+            builder.track(sym, grace=self.POLL_SECONDS + 5.0)
+
         def _receiver(raw) -> None:
-            self.handle_message(raw, callback)
+            chart_cap = self.parse_symbol_cap(raw, "CHART_EQUITY")
+            if chart_cap is not None and chart_cap < len(self.streamed_symbols):
+                # Schwab accepted fewer real-bar symbols than expected: the overflow
+                # moves down a tier (or is reported, with synthetic bars off).
+                with tiers_lock:
+                    over = self.streamed_symbols[chart_cap:]
+                    self.streamed_symbols = self.streamed_symbols[:chart_cap]
+                    if synthetic:
+                        for sym in over:
+                            builder.track(sym, grace=self.POLL_SECONDS + 5.0)
+                        self.polled_symbols = over + self.polled_symbols
+                    else:
+                        self.unstreamed_symbols = over + self.unstreamed_symbols
+                        self._warn_cap(chart_cap)
+            quote_cap = self.parse_symbol_cap(raw, "LEVELONE_EQUITIES")
+            if quote_cap is not None and quote_cap < len(self.quote_streamed_symbols):
+                with tiers_lock:
+                    over = self.quote_streamed_symbols[quote_cap:]
+                    self.quote_streamed_symbols = self.quote_streamed_symbols[:quote_cap]
+                    for sym in over:
+                        builder.track(sym, grace=self.POLL_SECONDS + 5.0)
+                    self.polled_symbols = over + self.polled_symbols
+                log.warning("Schwab accepted %d quote-stream symbols; %d moved to polling", quote_cap, len(over))
+            self.handle_message(raw, _emit)
+            if synthetic:
+                self.handle_quotes(raw, builder)
+
+        if self.unstreamed_symbols:
+            self._warn_cap(cap)
 
         stream.start(receiver=_receiver, daemon=True)
         # Subscribe in chunks; Schwab caps the key list per request.
         _CHUNK = 250
-        for i in range(0, len(symbols), _CHUNK):
-            stream.send(stream.chart_equity(symbols[i : i + _CHUNK], "0,1,2,3,4,5,6,7,8"))
-        log.info("Schwab: subscribed to CHART_EQUITY for %d symbols", len(symbols))
+        for i in range(0, len(self.streamed_symbols), _CHUNK):
+            stream.send(stream.chart_equity(self.streamed_symbols[i : i + _CHUNK], "0,1,2,3,4,5,6,7,8"))
+        for i in range(0, len(self.quote_streamed_symbols), _CHUNK):
+            stream.send(stream.level_one_equities(self.quote_streamed_symbols[i : i + _CHUNK], "0,3,8,10,11"))
+        log.info("Schwab: %d symbols on real bars, %d on streamed quotes, %d on polled quotes",
+                 len(self.streamed_symbols), len(self.quote_streamed_symbols), len(self.polled_symbols))
+        if synthetic and rest:
+            print(f"       Schwab coverage: {len(self.streamed_symbols):,} symbols on real 1-minute bars, "
+                  f"{len(self.quote_streamed_symbols):,} on bars built from live quotes, "
+                  f"{len(self.polled_symbols):,} on bars built from quotes polled every "
+                  f"{self.POLL_SECONDS:g}s (high/low approximate). SCHWAB_SYNTHETIC_BARS=0 turns "
+                  f"the last two off.", flush=True)
+
+        def _poll() -> None:
+            while not self._stop_evt.is_set():
+                t0 = time.monotonic()
+                with tiers_lock:
+                    todo = list(self.polled_symbols)
+                for i in range(0, len(todo), self.QUOTES_PER_REQUEST):
+                    if self._stop_evt.is_set():
+                        return
+                    batch = todo[i : i + self.QUOTES_PER_REQUEST]
+                    try:
+                        resp = self._request(lambda b=batch: self._client.quotes(symbols=b, fields="quote"))
+                        for sym, payload in (resp.json() or {}).items():
+                            q = (payload or {}).get("quote") or {}
+                            builder.on_quote(sym, last=_num(q.get("lastPrice")), total_volume=_num(q.get("totalVolume")),
+                                             day_high=_num(q.get("highPrice")), day_low=_num(q.get("lowPrice")))
+                    except Exception as exc:
+                        log.warning("Schwab quote poll failed for %d symbols: %s", len(batch), exc)
+                self._stop_evt.wait(max(0.5, self.POLL_SECONDS - (time.monotonic() - t0)))
+
+        def _flush() -> None:
+            while not self._stop_evt.wait(1.0):
+                try:
+                    builder.flush()
+                except Exception as exc:
+                    log.error("quote bar flush failed: %s", exc, exc_info=True)
+
+        if synthetic and rest:
+            threading.Thread(target=_flush, daemon=True, name="schwab-quote-bars").start()
+            threading.Thread(target=_poll, daemon=True, name="schwab-quote-poll").start()
 
         while not self._stop_evt.wait(1.0):
             pass
+
+    def _warn_cap(self, cap: int) -> None:
+        n, total = len(self.unstreamed_symbols), len(self.unstreamed_symbols) + len(self.streamed_symbols)
+        text = (f"Schwab streams live 1-minute bars for at most {cap} symbols per account, and "
+                f"SCHWAB_SYNTHETIC_BARS is off. {n:,} of your {total:,} symbols are NOT being scanned "
+                f"live: only the first {cap} in the universe file (the most liquid) are.")
+        log.error(text)
+        print("\n" + "!" * 72 + f"\n  {text}\n" + "!" * 72 + "\n", flush=True)
 
     def stop_stream(self) -> None:
         self._stop_evt.set()

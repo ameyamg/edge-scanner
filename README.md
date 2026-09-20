@@ -91,7 +91,9 @@ runs on. Alerts, parameters, a plain-English summary and a per-stock check are t
   - an [Alpaca](https://alpaca.markets) account (paper is fine). The default `ALPACA_FEED=sip`
     needs their paid market-data plan. The free `ALPACA_FEED=iex` works, but it is one exchange, so
     volume and relative volume read far lower and volume-based setups fire much less; or
-  - a Charles Schwab brokerage account, free, using `DATA_PROVIDER=schwab`. See the
+  - a Charles Schwab brokerage account, free, using `DATA_PROVIDER=schwab`. It covers the whole
+    universe: real 1-minute bars for the 300 most liquid symbols (Schwab's limit) and bars built from
+    Schwab's quotes for the rest, which are close but not identical. See the
     [user guide](USER_GUIDE.md#step-3-add-your-alpaca-keys) for the one-time login, which Schwab
     expires every 7 days.
 

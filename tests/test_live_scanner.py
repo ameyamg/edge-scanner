@@ -273,3 +273,21 @@ def test_connect_includes_spy_and_all_symbols():
     assert "SPY"  in subscribed
     assert "AAPL" in subscribed
     assert "MSFT" in subscribed
+
+
+def test_connect_subscribes_most_liquid_first():
+    """A provider that caps its best data tier takes symbols in this order."""
+    from types import SimpleNamespace
+    from scanner.live_scanner import LiveScanner
+    got = []
+    sc = LiveScanner.__new__(LiveScanner)
+    sc.feed = SimpleNamespace(subscribe_minute_bars=lambda symbols, cb: got.extend(symbols))
+    sc._states = {
+        "AAA": SimpleNamespace(adv20=1_000_000, prior_close=5.0),        # $5M
+        "NVDA": SimpleNamespace(adv20=100_000_000, prior_close=200.0),   # $20B
+        "ZZZ": SimpleNamespace(adv20=None, prior_close=10.0),            # unknown: last
+        "MU": SimpleNamespace(adv20=20_000_000, prior_close=100.0),      # $2B
+    }
+    sc.connect()
+    assert got == ["SPY", "NVDA", "MU", "AAA", "ZZZ"]
+
