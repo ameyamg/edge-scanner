@@ -22,8 +22,9 @@ instead of someone else's alert list.
 **[Quick start](#quick-start)** · **[User guide](USER_GUIDE.md)** · **[Releases](https://github.com/simonro/edge-scanner/releases)** · **[Privacy](#privacy-and-your-data)**
 
 **What this is not:** not financial advice, not a signal service, and not a broker. It never places
-an order. The sample setups are starting points, not a strategy. Every screenshot below is a
-replayed past session, not anyone's account.
+an order. The sample setups are starting points, not a strategy. The screenshots below come from a
+replayed past session, so the alerts are synthetic in the sense that they were produced by a replay:
+they are not anyone's real account, positions or orders.
 
 ![The Price Action screen: an alert table with the selected alert pinned above it, an intraday chart marking the alert bar, a daily chart, news, and rankings driving a second chart](docs/screenshot-price-action.png)
 
