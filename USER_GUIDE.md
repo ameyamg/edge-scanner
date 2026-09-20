@@ -84,6 +84,11 @@ A Schwab brokerage account includes market data, so it can replace the paid Alpa
 It is newer than the Alpaca path. Alpaca keys, if you keep them in `.env`, still supply the Benzinga
 news; without them news comes from the free Yahoo and Nasdaq feeds.
 
+Schwab has no official Python library, so this uses
+[Schwabdev](https://github.com/tylerebowers/Schwabdev) (MIT, by Tyler Bowers) for the API calls and
+the login. It installs with `pip install -r requirements.txt`, so there is nothing extra to fetch.
+It is an independent project, not affiliated with Charles Schwab.
+
 1. Create an app at [developer.schwab.com](https://developer.schwab.com) (callback URL
    `https://127.0.0.1`) and wait for it to be approved.
 2. Add to `.env`:
@@ -95,7 +100,8 @@ news; without them news comes from the free Yahoo and Nasdaq feeds.
    ```
 3. Log in once: `python scripts/schwab_auth.py`. It opens the Schwab login; after you approve,
    the browser shows a page that fails to load. That is expected: paste the whole address from the
-   address bar back into the terminal. The login is saved under `~/.schwabdev/`.
+   address bar back into the terminal. Schwabdev saves the tokens under `~/.schwabdev/`, outside
+   this folder, so they are never at risk of being committed.
 4. **Schwab expires the login every 7 days.** Run `schwab_auth.py` again weekly, or the scanner
    stops at startup with a message telling you to.
 
