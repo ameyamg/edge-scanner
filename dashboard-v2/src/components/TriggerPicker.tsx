@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { SetupTrigger, TriggerDef } from '../types'
 
@@ -14,6 +14,17 @@ export function TriggerPicker({ catalog, value, onChange, onClose }: {
   const [qs, setQs] = useState('')
   const [info, setInfo] = useState<TriggerDef | null>(null)
   const selectedIds = useMemo(() => new Set(value.map(t => t.id)), [value])
+  // The picker is the topmost modal, so Escape is its key: close the (?) panel
+  // first, then the picker. Config ignores Escape while the picker is open.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return
+      e.stopPropagation()
+      if (info) setInfo(null); else onClose()
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [info, onClose])
   const byId = useMemo(() => Object.fromEntries(catalog.map(t => [t.id, t])), [catalog])
 
   const available = useMemo(() => {

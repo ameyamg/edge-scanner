@@ -250,7 +250,19 @@ class Settings:
             raise ValueError("preset name: letters, digits, space, _ . - (max 48)")
         self._presets_dir.mkdir(parents=True, exist_ok=True)
         doc = {"saved_at": datetime.now(_ET).isoformat(timespec="seconds"), "hash": self.hash, "values": self.modified()}
-        (self._presets_dir / f"{name}.json").write_text(json.dumps(doc, indent=2) + "\n", encoding="utf-8")
+        # Temp file + replace, like current.json: an interrupted write must not
+        # truncate a preset that was fine a second ago.
+        path = self._presets_dir / f"{name}.json"
+        tmp = path.with_name(f".{path.name}.{os.getpid()}.{threading.get_ident()}.tmp")
+        try:
+            with open(tmp, "w", encoding="utf-8", newline="\n") as f:
+                f.write(json.dumps(doc, indent=2) + "\n")
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp, path)
+        finally:
+            if tmp.exists():
+                tmp.unlink()
         return {"name": name, **doc}
 
     def apply_preset(self, name: str) -> dict:

@@ -215,9 +215,12 @@ export function ChartWindow({ win }: { win: ChartConfig }) {
       let bar: number | null = null
       for (const b of visibleBars) { const t = toSecET(b.t); if (t <= at) bar = t; else break }
       if (bar != null) {
+        // Three cases: a neutral alert (volume spike, RVOL cross) has no side,
+        // so it gets a dot, never a down arrow.
         const long = selAlert.direction === 'long'
+        const short = selAlert.direction === 'short'
         const name = selAlert.setup_label || (selAlert.setup ? useSetups.getState().label(selAlert.setup) : '') || 'alert'
-        markers.push({ time: bar as UTCTimestamp, position: long ? 'belowBar' : 'aboveBar', shape: long ? 'arrowUp' : 'arrowDown', color: pal.accent, text: name })
+        markers.push({ time: bar as UTCTimestamp, position: long ? 'belowBar' : 'aboveBar', shape: long ? 'arrowUp' : short ? 'arrowDown' : 'circle', color: pal.accent, text: name })
       }
     }
     r.candles.setMarkers(markers)

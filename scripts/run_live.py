@@ -43,7 +43,7 @@ os.chdir(_REPO_ROOT)
 sys.path.insert(0, str(_REPO_ROOT))
 load_dotenv(override=True)
 
-from scanner.api import AppState, create_app
+from scanner.api import AppState, bind_sockets, create_app
 from scanner.data import FEEDS, make_feed
 from scanner.live_scanner import LiveScanner
 from scanner.market import classify_market
@@ -341,6 +341,9 @@ def main() -> None:
     parser.add_argument("--no-fundamentals", action="store_true",
                         help="Skip the Dashboard V2 yfinance fundamentals prefetch (background "
                              "thread after warmup; never blocks scanning).")
+    parser.add_argument("--host", default="127.0.0.1",
+                        help="Address the API and feeds bind to. Default is this machine only. "
+                             "The API has no authentication: bind a LAN address only on a network you trust.")
     parser.add_argument("--log-level",     default="WARNING",
                         help="DEBUG / INFO / WARNING (default: WARNING)")
     ext = plugins.live_extension()          # optional engine plugin (scanner/plugins.py)
@@ -523,9 +526,11 @@ def main() -> None:
         print("       Dashboard V2: fundamentals prefetch running in background (--no-fundamentals to skip)", flush=True)
     _api_app = create_app(app_state)
     print("       Dashboard V2: http://localhost:7777/v2  (build: npm --prefix dashboard-v2 run build)", flush=True)
-    _server_cfg = uvicorn.Config(_api_app, host="0.0.0.0", port=7777, log_level="warning")
+    _server_cfg = uvicorn.Config(_api_app, host=args.host, port=7777, log_level="warning")
     _api_server = uvicorn.Server(_server_cfg)
-    _api_thread = threading.Thread(target=_api_server.run, daemon=True, name="api-server")
+    _api_socks = bind_sockets(args.host, 7777)
+    _api_thread = threading.Thread(target=_api_server.run, kwargs={"sockets": _api_socks},
+                                   daemon=True, name="api-server")
     _api_thread.start()
     print("       Dashboard: http://localhost:7777", flush=True)
     print("       Unified feed: ws://localhost:7777/ws/alerts  (filters: sources, setups, triggers, symbols, "

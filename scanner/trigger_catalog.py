@@ -1057,8 +1057,13 @@ def _orb(c: EvalCtx, tf: int, up: bool) -> Optional[Fire]:
     if c.session != "rth":
         return None
     first = None
-    for x in s.candles[tf]:
-        if x.get("session") == "rth" and x["key"][1] == "rth" and x["key"][2] == 0:
+    # Today's opening candle only. The 5/15/30/60-min rings keep earlier sessions
+    # (seeded history, or yesterday in a process left running), so the date in
+    # key[0] has to match: the oldest opening candle in the ring is not today's.
+    for x in reversed(s.candles[tf]):
+        if x["key"][0] != s.session_date:
+            break
+        if x["key"][1] == "rth" and x["key"][2] == 0:
             first = x
             break
     if first is None:

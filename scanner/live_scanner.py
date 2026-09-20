@@ -335,6 +335,31 @@ class LiveScanner:
             float(vwap) if vwap is not None else None,
         )
 
+    def _roll_session_if_new_day(self, bar: dict) -> None:
+        """Reset intraday state when the first bar of a new ET date arrives.
+
+        A process left running overnight used to carry yesterday's VWAP, volume,
+        HOD/LOD and opening price into the new session. Startup seeding calls
+        state.on_bar directly, so this only ever sees live bars.
+        """
+        try:
+            ts = pd.Timestamp(bar["timestamp"])
+            if ts.tzinfo is None:
+                ts = ts.tz_localize("UTC")
+            day = ts.tz_convert("America/New_York").strftime("%Y-%m-%d")
+        except Exception:
+            return
+        prev = getattr(self, "_session_day", None)
+        if prev is None or day <= prev:       # a late bar never rolls the session back
+            if prev is None:
+                self._session_day = day
+            return
+        log.warning("New session %s (was %s): intraday state reset. Daily context "
+                    "(prior close, ADV, volume profile) is from the last warmup; "
+                    "restart to refresh it.", day, prev)
+        self.reset_session()
+        self._session_day = day
+
     # ── Bar routing ───────────────────────────────────────────────────────────
 
     def _on_bar(self, bar: dict) -> None:
@@ -347,6 +372,7 @@ class LiveScanner:
             bar: dict with keys symbol, timestamp, open, high, low, close, volume
         """
         symbol: str = bar.get("symbol", "")
+        self._roll_session_if_new_day(bar)
 
         if symbol == "SPY":
             if self._spy_state is None:
@@ -478,6 +504,9 @@ class LiveScanner:
 
         Call this after market close to prepare for tomorrow's session.
         """
+        # An explicit reset (replay, the demo) already did the rollover: forget the
+        # date so the next bar starts a session instead of triggering a second reset.
+        self._session_day = None
         for state in self._states.values():
             state._reset_intraday()
         if self._spy_state is not None:

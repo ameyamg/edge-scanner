@@ -11,6 +11,7 @@ import pandas as pd
 
 _MARKET_OPEN_MINUTES = 9 * 60 + 30   # 9:30 ET = 570 minutes since midnight
 _SESSION_MINUTES = 6 * 60 + 30       # 6.5 hour session = 390 minutes
+_SLOT_MINUTES = 5
 
 
 def build_volume_profile(bars_5m: pd.DataFrame) -> pd.Series:
@@ -44,21 +45,31 @@ def compute_rvol(
 ) -> float:
     """Current RVOL given the volume profile and today's cumulative volume.
 
+    Numerator and denominator must cover the SAME elapsed interval. `cum_vol`
+    runs up to `minutes_from_open`, so the expected volume does too: every fully
+    elapsed 5-min slot, plus the slot in progress prorated by the minutes of it
+    that have elapsed. Counting only completed slots (the old behaviour) made a
+    stock trading at exactly its normal pace read 2.0x at 09:39, then snap back
+    to 1.0x at 09:40, a sawtooth on every slot boundary.
+
     Args:
         profile:           output of build_volume_profile
         cum_vol:           shares traded today so far
-        minutes_from_open: floor to 5-min boundary for current ET time
-                           (e.g. 9:37 ET -> 5, since first full slot is 0-4)
+        minutes_from_open: RTH minutes that `cum_vol` covers. After the 09:37
+                           1-min bar closes that is 8 (09:30 through 09:37).
+                           On a 5-min boundary no proration applies.
 
     Returns:
-        RVOL ratio; NaN if profile is empty or no slots elapsed.
+        RVOL ratio; NaN if profile is empty or nothing has elapsed.
     """
-    if profile.empty:
+    if profile.empty or minutes_from_open <= 0:
         return float("nan")
-    elapsed = profile[profile.index < minutes_from_open]
-    if elapsed.empty:
-        return float("nan")
-    expected = float(elapsed.sum())
+    minutes_from_open = min(int(minutes_from_open), _SESSION_MINUTES)
+    cur_slot = (minutes_from_open // _SLOT_MINUTES) * _SLOT_MINUTES
+    expected = float(profile[profile.index < cur_slot].sum())
+    into_slot = minutes_from_open - cur_slot
+    if into_slot and cur_slot in profile.index:
+        expected += float(profile.loc[cur_slot]) * into_slot / _SLOT_MINUTES
     if expected <= 0:
         return float("nan")
     return cum_vol / expected

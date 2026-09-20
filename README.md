@@ -20,14 +20,17 @@ instead of someone else's alert list.
   WebSocket feed other programs can subscribe to.
 - **Free and MIT licensed.** No paid tier.
 
-**[Quick start](#quick-start)** · **[User guide](USER_GUIDE.md)** · **[Releases](https://github.com/simonro/edge-scanner/releases)** · **[Privacy](#privacy-and-your-data)**
+**[Quick start](#quick-start)** · **[Watch the walkthrough](https://youtu.be/fGerDFkKGUI)** · **[User guide](USER_GUIDE.md)** · **[Releases](https://github.com/simonro/edge-scanner/releases)** · **[Privacy](#privacy-and-your-data)**
 
 **What this is not:** not financial advice, not a signal service, and not a broker. It never places
 an order. The sample setups are starting points, not a strategy. The screenshots below come from a
 replayed past session, so the alerts are synthetic in the sense that they were produced by a replay:
 they are not anyone's real account, positions or orders.
 
-![The Price Action screen: an alert table with the selected alert pinned above it, an intraday chart marking the alert bar, a daily chart, news, and rankings driving a second chart](docs/screenshot-price-action.png)
+[![Watch: I build my own stock scanner setups, free and open source](docs/video-thumbnail.jpg)](https://youtu.be/fGerDFkKGUI)
+
+**[I build my own stock scanner setups, free and open source](https://youtu.be/fGerDFkKGUI)**: why I
+stopped paying for a scanner, how the setups are built, and the app running on a live session.
 
 ## Privacy and your data
 
@@ -65,7 +68,11 @@ no login because nothing is exposed to the network.
 
 ## Screenshots
 
-The **Price Action** screen is at the top of this page. Two more, from the same replayed session:
+**Price Action**: alerts on the left, the one you clicked pinned above the table and marked on the
+intraday chart, a daily chart and news on the right, and a second link group along the bottom where
+rankings drive their own chart.
+
+![The Price Action screen: an alert table with the selected alert pinned above it, an intraday chart marking the alert bar, a daily chart, news, and rankings driving a second chart](docs/screenshot-price-action.png)
 
 **Pre-Market**: pre-market gainers, losers and volume leaders. Click any symbol and the chart, the
 daily chart, news and stock info all follow it.

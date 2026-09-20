@@ -154,7 +154,7 @@ export function ScannerWindow({ win }: { win: ScannerConfig }) {
       selectedKey={selected ? alertKey(selected) : null}
       onRowClick={select}
       onSelect={select}
-      rowClass={a => `${win.rowTint ? (a.direction === 'short' ? 'tint-short' : 'tint-long') : ''}${newKeys.current.has(alertKey(a)) && lastSeq > mountSeq.current ? ' row-new' : ''}`}
+      rowClass={a => `${win.rowTint ? (a.direction === 'short' ? 'tint-short' : a.direction === 'long' ? 'tint-long' : '') : ''}${newKeys.current.has(alertKey(a)) && lastSeq > mountSeq.current ? ' row-new' : ''}`}
       emptyText={empty}
       colWidths={win.colWidths}
       onColWidths={colWidths => useScreens.getState().updateWindow(win.id, { colWidths })}

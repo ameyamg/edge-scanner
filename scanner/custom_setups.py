@@ -69,6 +69,15 @@ class SetupError(ValueError):
 
 def normalize_setup(raw: dict, *, existing_id: Optional[str] = None) -> dict:
     """Validate + normalise a custom setup definition. Raises SetupError."""
+    try:
+        return _normalize_setup(raw, existing_id=existing_id)
+    except (ValueError, TypeError, OverflowError) as exc:
+        # "abc", NaN, infinity or a list where a number belongs. The API maps
+        # SetupError to a 400; anything else would surface as a 500.
+        raise SetupError(f"a numeric field has an invalid value ({exc})") from exc
+
+
+def _normalize_setup(raw: dict, *, existing_id: Optional[str] = None) -> dict:
     if not isinstance(raw, dict):
         raise SetupError("setup must be an object")
     sid = str(raw.get("id") or existing_id or "").strip()

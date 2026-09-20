@@ -57,13 +57,58 @@ class AppState:
 
 # ── FastAPI factory ───────────────────────────────────────────────────────────
 
+# This is a local app with unauthenticated write endpoints, so only pages served
+# from this machine may call it. Any port is fine (the Vite dev server, other
+# local tools). Non-browser clients send no Origin header and are unaffected.
+LOCAL_ORIGIN_RE = r"^https?://(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$"
+DEFAULT_HOST = "127.0.0.1"
+
+
+def bind_sockets(host: str, port: int) -> list:
+    """Listening sockets for uvicorn's `Server.run(sockets=...)`.
+
+    The default host binds BOTH loopback addresses. On Windows `localhost`
+    resolves to ::1 first, and a server on 127.0.0.1 alone makes every
+    `localhost` client wait about two seconds before it falls back to IPv4.
+    Any other host binds just that address.
+    """
+    import socket
+    targets = [(socket.AF_INET, "127.0.0.1"), (socket.AF_INET6, "::1")] if host == DEFAULT_HOST         else [(socket.AF_INET6 if ":" in host else socket.AF_INET, host)]
+    out = []
+    for family, addr in targets:
+        try:
+            s = socket.socket(family, socket.SOCK_STREAM)
+            if family == socket.AF_INET6:
+                s.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 1)
+            s.bind((addr, port))
+            s.listen(128)
+            s.setblocking(False)
+            out.append(s)
+        except OSError:
+            if family == socket.AF_INET6 and out:
+                continue              # IPv6 disabled on this machine: IPv4 loopback is enough
+            for o in out:
+                o.close()
+            raise
+    return out
+
+
+def origin_is_local(origin: Optional[str], host: Optional[str] = None) -> bool:
+    """True for a missing Origin (scripts, bots), one on this machine, or the
+    page this server itself served (same host:port, which covers --host on a LAN)."""
+    import re
+    if not origin or re.match(LOCAL_ORIGIN_RE, origin) is not None:
+        return True
+    return bool(host) and origin.split("://", 1)[-1] == host
+
+
 def create_app(app_state: AppState) -> FastAPI:
     """Build and return the FastAPI application."""
     app = FastAPI(title="Scanner Dashboard API")
 
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
+        allow_origin_regex=LOCAL_ORIGIN_RE,
         allow_methods=["*"],
         allow_headers=["*"],
     )
@@ -83,6 +128,10 @@ def create_app(app_state: AppState) -> FastAPI:
 
     @app.websocket("/ws/alerts")
     async def ws_alerts(ws: WebSocket) -> None:
+        # CORS does not cover WebSockets, so check the Origin here.
+        if not origin_is_local(ws.headers.get("origin"), ws.headers.get("host")):
+            await ws.close(code=1008)
+            return
         await app_state.hub.serve(ws, ws.query_params)
 
     @app.get("/api/alerts")

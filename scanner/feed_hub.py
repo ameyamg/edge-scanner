@@ -39,6 +39,13 @@ log = logging.getLogger(__name__)
 
 SOURCES = ("system", "custom")
 _POLL = 0.05
+# Slow-subscriber isolation. Every client gets its own bounded outbox and sender
+# task, so one stalled socket cannot delay anyone else. A client that falls
+# _CLIENT_QUEUE messages behind, or whose socket does not take a message within
+# _SEND_TIMEOUT seconds, is disconnected rather than silently skipped: it
+# reconnects, gets the replay, and dedupes on `seq`, so nothing is lost quietly.
+_CLIENT_QUEUE = 1000
+_SEND_TIMEOUT = 5.0
 _BUFFER = 5000
 
 
@@ -150,6 +157,9 @@ class _Client:
     since: int = 0                  # alerts with seq <= since were in the replay already
     sent: int = 0
     connected_at: float = field(default_factory=lambda: __import__("time").time())
+    close: Any = None               # async callable() that closes the socket, optional
+    outbox: Any = None              # asyncio.Queue[str], created by the broadcast loop
+    task: Any = None                # the sender task draining `outbox`
 
 
 class _TapSink(AlertSink):
@@ -180,6 +190,13 @@ class _TapSink(AlertSink):
         return len(self._inner)
 
 
+def _current_task():
+    try:
+        return asyncio.current_task()
+    except RuntimeError:
+        return None
+
+
 class FeedHub:
     """One bus for every alert, one WebSocket contract for every consumer."""
 
@@ -192,6 +209,7 @@ class FeedHub:
         self._lock = threading.Lock()
         self._next_id = 1
         self.published = 0
+        self.dropped_clients = 0           # disconnected for being too slow
         if load_persisted:
             for a in self.store.load_recent():
                 self.recent.append(a)
@@ -220,20 +238,24 @@ class FeedHub:
         out = [a for a in reversed(items) if sub.matches(a)]
         return out[:limit]
 
-    def add_client(self, send, sub: Subscription, name: str = "") -> int:
+    def add_client(self, send, sub: Subscription, name: str = "", close=None) -> int:
         with self._lock:
             cid = self._next_id
             self._next_id += 1
-            self._clients[cid] = _Client(send=send, sub=sub, name=name, since=self.published)
+            self._clients[cid] = _Client(send=send, sub=sub, name=name, since=self.published, close=close)
         return cid
 
     def remove_client(self, cid: int) -> None:
         with self._lock:
-            self._clients.pop(cid, None)
+            c = self._clients.pop(cid, None)
+        if c is not None and c.task is not None and c.task is not _current_task():
+            c.task.cancel()
 
     def clients(self) -> list[dict]:
         with self._lock:
-            return [{"id": cid, "name": c.name, "sent": c.sent, "filter": c.sub.describe()} for cid, c in self._clients.items()]
+            return [{"id": cid, "name": c.name, "sent": c.sent, "filter": c.sub.describe(),
+                     "queued": c.outbox.qsize() if c.outbox is not None else 0}
+                    for cid, c in self._clients.items()]
 
     def clear(self) -> None:
         with self._lock:
@@ -260,18 +282,48 @@ class FeedHub:
                         continue          # already in that client's replay, or filtered out
                     if msg is None:
                         msg = json.dumps({"type": "alert", "alert": a})
+                    if c.outbox is None:
+                        c.outbox = asyncio.Queue(maxsize=_CLIENT_QUEUE)
+                        c.task = asyncio.create_task(self._sender(cid, c))
                     try:
-                        await c.send(msg)
-                        c.sent += 1
-                    except Exception:
-                        self.remove_client(cid)
+                        c.outbox.put_nowait(msg)      # never awaits: a slow client cannot stall the loop
+                    except asyncio.QueueFull:
+                        await self._drop(cid, c, "outbox full")
+
+    async def _sender(self, cid: int, c: _Client) -> None:
+        """Drain one client's outbox in order, with a deadline on every send."""
+        try:
+            while True:
+                msg = await c.outbox.get()
+                await asyncio.wait_for(c.send(msg), _SEND_TIMEOUT)
+                c.sent += 1
+        except asyncio.CancelledError:
+            raise
+        except asyncio.TimeoutError:
+            await self._drop(cid, c, f"send took over {_SEND_TIMEOUT:g}s")
+        except Exception:
+            self.remove_client(cid)               # socket already gone
+
+    async def _drop(self, cid: int, c: _Client, why: str) -> None:
+        with self._lock:
+            if cid not in self._clients:
+                return
+        self.dropped_clients += 1
+        log.warning("feed: dropping slow client %d %s (%s); it can reconnect and replay", cid, c.name, why)
+        self.remove_client(cid)
+        if c.close is not None:
+            try:
+                await asyncio.wait_for(c.close(), 1.0)
+            except Exception:
+                pass
 
     async def serve(self, ws, params: Any, name: str = "") -> None:
         """Run one WebSocket client until it disconnects (FastAPI / Starlette)."""
         from starlette.websockets import WebSocketDisconnect
         sub = Subscription.from_params(params)
         await ws.accept()
-        cid = self.add_client(ws.send_text, sub, name or (ws.client.host if ws.client else ""))
+        cid = self.add_client(ws.send_text, sub, name or (ws.client.host if ws.client else ""),
+                              close=lambda: ws.close(code=1013))
         log.info("feed: client %d connected %s (%d total)", cid, sub.describe(), len(self._clients))
         try:
             recent = self.recent_for(sub)

@@ -43,6 +43,7 @@ _RR_1M_RING = 30                          # RTH 1-min bars kept for 5-bar stop +
                                           # no existing computed value -- verified against the ring
                                           # size, not assumed.
 _RTH_OPEN_MIN = 9 * 60 + 30               # 09:30 ET in minutes since midnight
+_RTH_CLOSE_MIN = 16 * 60                  # 16:00 ET; bars at or after this are postmarket
 
 
 class SymbolState:
@@ -271,6 +272,10 @@ class SymbolState:
             self._pm_low  = low  if self._pm_low  is None else min(self._pm_low,  low)
             self._pm_vol += vol
             return
+        if et_min >= _RTH_CLOSE_MIN:
+            # Postmarket. Session VWAP, volume, HOD/LOD and the 5-min deque are
+            # RTH values and freeze at the close.
+            return
 
         if self._session_open is None:
             self._session_open = bar["open"]
@@ -378,11 +383,12 @@ class SymbolState:
 
     @property
     def rvol(self) -> Optional[float]:
-        if self.volume_profile.empty or not self._partial_stock_5m:
+        if self.volume_profile.empty or not self._last_1m:
             return None
-        ts = self._partial_stock_5m["timestamp"]
-        et = pd.Timestamp(ts).tz_convert("America/New_York")
-        mins = et.hour * 60 + et.minute - (9 * 60 + 30)
+        # Minutes of RTH that _cum_vol covers: the latest 1-min bar is stamped at
+        # its start, so it closes one minute later. Using the 5-min slot start
+        # here compared today's volume against a shorter baseline interval.
+        mins = _et_minutes(self._last_1m[-1]["timestamp"]) - _RTH_OPEN_MIN + 1
         return compute_rvol(self.volume_profile, self._cum_vol, mins)
 
     @property
