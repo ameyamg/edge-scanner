@@ -503,7 +503,7 @@ def main() -> None:
                 continue
             state._reset_intraday()  # clear any partial state from warmup
             for ts, row in sym_bars.iterrows():
-                state.on_bar({
+                _bar = {
                     "symbol":    sym,
                     "timestamp": ts,
                     "open":      float(row["open"]),
@@ -511,7 +511,14 @@ def main() -> None:
                     "low":       float(row["low"]),
                     "close":     float(row["close"]),
                     "volume":    float(row["volume"]),
-                }, spy_bar_map.get(ts))
+                }
+                state.on_bar(_bar, spy_bar_map.get(ts))
+                # The candle rings too, in the same order as live. They hold the
+                # day's high and low, the opening-range candle and today's candles
+                # for every composed trigger. Left empty, a start after the open
+                # made each new local high a "new high of day" for the rest of the
+                # session and left the opening range undefined.
+                scanner._advance_series(state, _bar)
             seeded_from_bars.add(sym)
         print(
             f"       {len(seeded_from_bars)}/{len(all_syms)} symbols seeded from bars"
@@ -538,8 +545,17 @@ def main() -> None:
                 if state is None:
                     continue
                 state._reset_intraday()
-                state.on_bar({"symbol": sym, "timestamp": stamp, "open": q["open"], "high": q["high"],
-                              "low": q["low"], "close": q["last"], "volume": q["volume"]})
+                _bar = {"symbol": sym, "timestamp": stamp, "open": q["open"], "high": q["high"],
+                        "low": q["low"], "close": q["last"], "volume": q["volume"]}
+                state.on_bar(_bar)
+                # The candle rings get the day's high and low only, never this bar:
+                # it holds the whole session's volume, and as a candle it read as a
+                # 10x to 25x volume spike the moment its 5-minute candle closed
+                # (measured: 44 false Volume Spike alerts after one mid-session start).
+                _ser = scanner.series(sym)
+                _ser.session_date = _now_et.strftime("%Y-%m-%d")
+                _ser.day_high, _ser.day_low = q["high"], q["low"]
+                _ser.ext_high, _ser.ext_low = q["high"], q["low"]
             if todo:
                 print(f"       {len(quotes)}/{len(todo)} more symbols caught up from quotes (volume and "
                       f"high/low so far; VWAP approximate until the next start before the open)", flush=True)
