@@ -521,6 +521,31 @@ def main() -> None:
     except Exception as exc:
         print(f"       WARNING: Could not seed intraday bars: {exc}", flush=True)
 
+    # A provider that can back-fill today's bars only for its most liquid symbols
+    # (Schwab) fills the rest from quotes when the session is already under way:
+    # one catch-up bar holding the day's open, high, low, last and volume so far.
+    # It goes straight into the symbol's state, like the bars above, so it never
+    # reaches a setup and cannot fire an alert.
+    try:
+        _now_et = pd.Timestamp.now(tz="America/New_York")
+        _rth = _now_et.weekday() < 5 and (9 * 60 + 31) <= (_now_et.hour * 60 + _now_et.minute) < 16 * 60
+        if _rth and hasattr(feed, "get_session_quotes"):
+            todo = [s for s in scanner.ranked_symbols() if s not in seeded_from_bars]
+            quotes = feed.get_session_quotes(todo) if todo else {}
+            stamp = (_now_et.floor("min") - pd.Timedelta(minutes=1)).tz_convert("UTC")
+            for sym, q in quotes.items():
+                state = scanner._states.get(sym)
+                if state is None:
+                    continue
+                state._reset_intraday()
+                state.on_bar({"symbol": sym, "timestamp": stamp, "open": q["open"], "high": q["high"],
+                              "low": q["low"], "close": q["last"], "volume": q["volume"]})
+            if todo:
+                print(f"       {len(quotes)}/{len(todo)} more symbols caught up from quotes (volume and "
+                      f"high/low so far; VWAP approximate until the next start before the open)", flush=True)
+    except Exception as exc:
+        print(f"       WARNING: Could not catch up from quotes: {exc}", flush=True)
+
     # (The old snapshot daily_volume fallback for symbols with no bars today was
     # removed: that figure includes premarket volume, which the RTH-only volume
     # profile does not, so it inflated RVOL. A symbol with no bars today has

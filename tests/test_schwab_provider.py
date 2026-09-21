@@ -229,3 +229,18 @@ def test_quote_stream_cap_moves_the_overflow_to_polling(monkeypatch):
         "code": 19, "msg": "You've reached the maximum number of symbols allowed.  (LEVELONE_EQUITIES=2000, DISCARDED=250)"}}]})
     assert feed.quote_streamed_symbols == symbols[300:2300]
     assert feed.polled_symbols == symbols[2300:]          # overflow first, then the original tail
+
+
+def test_short_history_is_not_downloaded_again_once_that_span_was_asked_for(tmp_path):
+    """A recent listing can never reach back to the start asked for. Once that
+    span has been requested, what is cached is everything the provider has."""
+    c = _Client()
+    f = _feed(tmp_path, c)
+    far_back = date(2020, 1, 1)                     # long before the fake client's first candle
+    f.get_historical_daily("AAA", far_back, date(2026, 1, 20))
+    f.get_historical_daily("AAA", far_back, date(2026, 1, 20))
+    assert c.calls == ["AAA"]                       # second call reused the cache
+    f.get_historical_daily("AAA", date(2019, 1, 1), date(2026, 1, 20))     # longer still: ask again
+    assert c.calls == ["AAA", "AAA"]
+    assert _feed(tmp_path, c).get_historical_daily("AAA", far_back, date(2026, 1, 20)) is not None
+    assert c.calls == ["AAA", "AAA"]                # the record survives a restart
