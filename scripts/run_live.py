@@ -576,6 +576,8 @@ def main() -> None:
         start_background_prefetch(list(scanner._states.keys()))
         print("       Dashboard V2: fundamentals prefetch running in background (--no-fundamentals to skip)", flush=True)
     _api_app = create_app(app_state)
+    from scanner.update_check import start_background_check
+    start_background_check()          # one anonymous GET to GitHub; UPDATE_CHECK=0 turns it off
     print(f"       Dashboard V2: http://localhost:{args.port}/v2  (build: npm --prefix dashboard-v2 run build)", flush=True)
     _server_cfg = uvicorn.Config(_api_app, host=args.host, port=args.port, log_level="warning")
     _api_server = uvicorn.Server(_server_cfg)
