@@ -545,8 +545,10 @@ def main() -> None:
                 if state is None:
                     continue
                 state._reset_intraday()
+                # On the same footing as the bars this provider builds from quotes.
                 _bar = {"symbol": sym, "timestamp": stamp, "open": q["open"], "high": q["high"],
-                        "low": q["low"], "close": q["last"], "volume": q["volume"]}
+                        "low": q["low"], "close": q["last"],
+                        "volume": q["volume"] * float(getattr(feed, "BAR_VOLUME_SHARE", 1.0))}
                 state.on_bar(_bar)
                 # The candle rings get the day's high and low only, never this bar:
                 # it holds the whole session's volume, and as a candle it read as a

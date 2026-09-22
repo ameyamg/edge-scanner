@@ -148,3 +148,26 @@ def test_unknown_size_keeps_the_old_behaviour():
     clock.t += 5; b.on_quote("AAPL", last=10.2, total_volume=150)
     clock.t += 70; b.flush()
     assert bars[0]["close"] == 10.2
+
+
+# ── volume: corrections and the provider's bar footing (first live session) ───
+
+def test_a_small_downward_revision_adds_nothing():
+    """A corrected trade lowers the day's total a little. Treating that as a
+    counter reset re-added the whole day's volume (2.5x on some symbols)."""
+    b, bars, clock = _builder()
+    b.on_quote("AAPL", last=50.0, total_volume=1_000_000)
+    clock.t += 5; b.on_quote("AAPL", last=50.1, total_volume=1_000_400)
+    clock.t += 5; b.on_quote("AAPL", last=50.1, total_volume=1_000_300)      # revised down by 100
+    clock.t += 5; b.on_quote("AAPL", last=50.2, total_volume=1_000_500)
+    clock.t += 70; b.flush()
+    assert bars[0]["volume"] == 600                                          # 400 + 200, not a million
+
+
+def test_scale_puts_built_volume_on_the_providers_bar_footing():
+    b, bars, clock = _builder()
+    b.set_scale("AAPL", 0.75)
+    b.on_quote("AAPL", last=50.0, total_volume=1_000)
+    clock.t += 5; b.on_quote("AAPL", last=50.1, total_volume=1_400)
+    clock.t += 70; b.flush()
+    assert bars[0]["volume"] == 300

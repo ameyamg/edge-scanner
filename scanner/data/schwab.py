@@ -145,25 +145,41 @@ def _num(v) -> float | None:
     return f if f == f else None
 
 
+def _last_session_before(moment: datetime) -> date:
+    """The most recent weekday whose regular session had closed by `moment` (ET)."""
+    d = moment.date()
+    if moment.hour * 60 + moment.minute < 16 * 60:      # today's session not over yet
+        d = date.fromordinal(d.toordinal() - 1)
+    while d.weekday() >= 5:
+        d = date.fromordinal(d.toordinal() - 1)
+    return d
+
+
 def _fresh(path: Path, df: pd.DataFrame, end: date) -> bool:
     """True when a cached frame does not need re-downloading.
 
-    Schwab serves ONE symbol per history request at about 120 requests a minute,
-    so re-downloading a whole-market universe every morning costs hours. A file
-    is fresh when its data already reaches the last session on or before `end`
-    (a Monday premarket start is served by Friday's bars), or when it was
-    written today (covers symbols that simply did not trade that session).
+    Schwab serves ONE symbol per history request at about 120 a minute, so
+    re-downloading a whole-market universe costs two hours. The question is not
+    "does the data reach `end`" (a file written Monday morning holds Friday's
+    bars, and Tuesday asks for Monday: that rule re-downloaded everything every
+    morning) but "could Schwab give more than this file has?" It could not if
+    the file was written after the close of the last session on or before `end`,
+    plus a margin for late final bars.
     """
     if df is None or df.empty:
         return False
+    written = datetime.fromtimestamp(path.stat().st_mtime, tz=_ET)
     target = end
-    while target.weekday() >= 5:                       # roll a weekend back to Friday
+    while target.weekday() >= 5:
         target = date.fromordinal(target.toordinal() - 1)
+    # Written after that session's close (with an hour for the tape to settle)?
+    close = datetime(target.year, target.month, target.day, 17, 0, tzinfo=_ET)
+    if written >= close:
+        return True
+    # Or the data itself already reaches that session.
     last = pd.Timestamp(df.index.max())
     last_day = last.tz_convert(_ET).date() if last.tzinfo is not None else last.date()
-    if last_day >= target:
-        return True
-    return datetime.fromtimestamp(path.stat().st_mtime).date() >= date.today()
+    return last_day >= target
 
 
 class _Asked:
@@ -545,6 +561,16 @@ class SchwabFeed(DataFeed):
                 return SchwabFeed.CHART_EQUITY_CAP if service == "CHART_EQUITY" else SchwabFeed.LEVELONE_CAP
         return None
 
+    # Schwab's minute bars carry about this share of the cumulative volume its
+    # quotes report, evenly through the day. Measured against a consolidated feed
+    # on 12 symbols across the tiers: 0.64 to 0.82, median 0.77. Built volume is
+    # scaled by it so that relative volume, which divides by a baseline made from
+    # those minute bars, compares like with like. A per-symbol factor from cached
+    # history was tried (regular-session 5-minute volume over daily volume) and was
+    # WORSE than this constant: daily volume includes the closing auction and
+    # after-hours trading, which the intraday total never sees.
+    BAR_VOLUME_SHARE = 0.77
+
     @staticmethod
     def handle_quotes(raw, builder) -> None:
         """Feed LEVELONE_EQUITIES updates to a QuoteBarBuilder. Fields: 3 last
@@ -613,6 +639,8 @@ class SchwabFeed(DataFeed):
             builder.track(sym, grace=3.0)
         for sym in self.polled_symbols:
             builder.track(sym, grace=self.POLL_SECONDS + 5.0)
+        for sym in self.quote_streamed_symbols + self.polled_symbols:
+            builder.set_scale(sym, self.BAR_VOLUME_SHARE)
 
         def _receiver(raw) -> None:
             chart_cap = self.parse_symbol_cap(raw, "CHART_EQUITY")
@@ -625,6 +653,7 @@ class SchwabFeed(DataFeed):
                     if synthetic:
                         for sym in over:
                             builder.track(sym, grace=self.POLL_SECONDS + 5.0)
+                            builder.set_scale(sym, self.BAR_VOLUME_SHARE)
                         self.polled_symbols = over + self.polled_symbols
                     else:
                         self.unstreamed_symbols = over + self.unstreamed_symbols

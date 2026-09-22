@@ -96,6 +96,12 @@ closing prices and volume to agree with Alpaca's, and alerts built on the exact 
 (breakouts, wicks) to differ now and then in the lower tiers. Odd-lot trades add to a built bar's
 volume but never set its price, the same rule real bars follow.
 
+**Refresh the history after the close.** Schwab allows one symbol per history request, about 120 a
+minute, and the scanner needs yesterday's bars for every symbol at startup: on a whole-market universe
+that is two hours of requests. Run `python scripts/refresh_schwab_cache.py` after the close, ideally as
+a scheduled task at 17:30 ET on weekdays (Windows Task Scheduler or cron), and the morning start finds
+everything cached and takes minutes. It is REST only and safe to run while a scanner is live.
+
 Start the scanner **before the open** when you can. Schwab allows one symbol per history request, so
 only the 600 most liquid symbols are back-filled with today's bars at startup. On a start after the
 open, the rest are caught up from quotes in a few seconds (the day's open, high, low, last and volume
@@ -389,6 +395,7 @@ filters more to choose from but costs more CPU per minute and a longer first dow
 | `scripts/schwab_auth.py` | Logs in to Schwab (`DATA_PROVIDER=schwab`); repeat weekly |
 | `scripts/check_schwab_match.py` | Compares Alpaca and Schwab universes and data side by side |
 | `scripts/compare_live_feeds.py` | Compares two running scanners: symbol state and alerts, per data tier |
+| `scripts/refresh_schwab_cache.py` | Downloads the day's Schwab history after the close so the next start is fast |
 | `scripts/compare_universes.py` | Builds two universes and explains every difference |
 | `start_scanner.bat`, `start_scanner.sh` | Launchers for Windows and for macOS / Linux (section 3) |
 | `restart_scanner.bat` | Stops a running scanner and starts it again (Windows) |

@@ -31,6 +31,22 @@ only counts when the quote's last size is a round lot for that price; an
 odd-lot print still adds its volume. A minute with volume but no round-lot
 price produces no bar, as on the tape.
 
+VOLUME. Two things measured on the first live session, both of which made the
+built bars' volume run far above a real bar's:
+
+  * The day's cumulative volume is sometimes revised DOWN by a small amount (a
+    cancelled or corrected trade). Treating any decrease as "the counter was
+    reset" added the whole day's volume again: over an afternoon some symbols
+    carried 2.5 times the volume the provider itself reported. Only a collapse
+    to a small fraction of the previous total is a reset; a small decrease is a
+    correction and adds nothing.
+  * A provider's own minute bars may count fewer prints than its cumulative
+    volume does. Schwab's carry 60 to 85 percent of it, evenly through the day
+    and steady per symbol (odd lots, most likely). Relative volume divides
+    today's volume by a baseline built from those bars, so an unscaled built bar
+    read 20 to 40 percent high. `set_scale` gives each symbol the factor that
+    puts its built volume on the same footing as the provider's real bars.
+
 Thread-safe: quotes may arrive from a stream thread and a polling thread while
 a timer thread flushes finished minutes.
 """
@@ -42,6 +58,11 @@ from dataclasses import dataclass
 from typing import Callable, Optional
 
 import pandas as pd
+
+
+# A cumulative volume that falls below this fraction of its previous value is a
+# counter reset (a new session). Anything smaller is a correction.
+_RESET_FRACTION = 0.2
 
 
 def round_lot(price: float) -> int:
@@ -72,6 +93,7 @@ class _Sym:
     c: float = 0.0
     v: float = 0.0
     grace: float = 3.0                    # seconds after the minute ends before it may be emitted
+    scale: float = 1.0                    # built volume x scale = volume on the provider's bar footing
 
 
 class QuoteBarBuilder:
@@ -96,6 +118,13 @@ class QuoteBarBuilder:
         held back: a little over the longest gap between two quotes for it."""
         with self._lock:
             self._syms.setdefault(symbol, _Sym()).grace = grace
+
+    def set_scale(self, symbol: str, scale: float) -> None:
+        """Multiply this symbol's built volume by `scale` (see VOLUME above)."""
+        with self._lock:
+            s = self._syms.get(symbol)
+            if s is not None and scale == scale and scale > 0:
+                s.scale = float(scale)
 
     def on_quote(self, symbol: str, last: Optional[float] = None, total_volume: Optional[float] = None,
                  day_high: Optional[float] = None, day_low: Optional[float] = None,
@@ -136,12 +165,16 @@ class QuoteBarBuilder:
                 return
             if total == s.total:
                 return                                # bid/ask moved, nothing traded
-            # A smaller total means the provider reset its day counter: everything
-            # it now reports traded since the reset.
-            delta = total - s.total if total > s.total else total
+            if total > s.total:
+                delta = total - s.total
+            elif total < s.total * _RESET_FRACTION:
+                delta = total             # the day counter was reset: this traded since
+            else:
+                delta = 0.0               # a small downward revision: a correction, not new volume
             s.total = total
             if delta <= 0:
                 return
+            delta *= s.scale
 
             minute = int(self._clock() // 60)
             if s.minute is not None and minute != s.minute:
