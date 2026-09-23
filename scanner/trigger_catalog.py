@@ -305,7 +305,7 @@ def _build_catalog() -> list[TriggerDef]:
                            ParamDef("max_dwell", "Candles allowed near VWAP", 1, 0, 10, 1, "candles")), default_options=("support",)))
     add(TriggerDef("range_break", "Range break", "Highs & lows",
                    "Price has been trapped inside a tight range for N completed candles and "
-                   "then leaves it on a volume bar. The same shape as an opening-range break, "
+                   "then leaves it on a 1-minute bar with several times the range's average minute volume. The same shape as an opening-range break, "
                    "except the range is any N-candle consolidation rather than the first "
                    "candle of the day, so it can happen at any hour.",
                    "both", _UPDOWN, "Direction",
@@ -318,7 +318,13 @@ def _build_catalog() -> list[TriggerDef]:
                                       "scales it to how much the stock normally moves in a day. "
                                       "x avg candle compares it with the stock's own recent candles, "
                                       "so it adjusts to a busy open and a quiet lunch."),
-                           ParamDef("vol_mult", "Breakout volume", 1.5, 1, 10, 0.1, "x avg"),
+                           # vol_min replaced vol_mult, which compared the 1-minute
+                           # breaking bar with a whole range candle; a saved vol_mult
+                           # is converted on load (custom_setups.migrate_trigger).
+                           ParamDef("vol_min", "Breakout volume", 6.0, 1, 30, 0.5, "x avg minute",
+                                    "Volume of the 1-minute bar that leaves the range, against the "
+                                    "range's average minute. 6x on a 5-minute range is the same bar "
+                                    "as a 1.2x 5-minute candle."),
                            ParamDef("tf", "Timeframe", 5, 1, 60, 1, "min")), default_options=("up",)))
     add(TriggerDef("ema_cross_ema", "EMA crosses EMA", "Crosses & levels",
                    "A faster EMA crosses a slower one on the chosen timeframe. Every other "
@@ -1552,9 +1558,11 @@ def _t_range_break(c: EvalCtx, opt: str, p: dict) -> Optional[Fire]:
     # Volume on the breaking bar, against the average INSIDE the range. A
     # consolidation is quiet by construction, so this asks whether anything
     # actually showed up to break it rather than whether it drifted out.
+    # Per minute on both sides: the breaking bar is one minute and the range
+    # candles are tf minutes (found by neusse, edge-scanner #18).
     vols = [float(x.get("volume") or 0.0) for x in cs]
-    avg = sum(vols) / len(vols) if vols else 0.0
-    if avg > 0 and float(c.bar.get("volume") or 0.0) < avg * float(p["vol_mult"]):
+    avg = sum(vols) / (len(vols) * tf) if vols else 0.0
+    if avg > 0 and float(c.bar.get("volume") or 0.0) < avg * float(p["vol_min"]):
         return None
     px = float(c.bar["close"])
     # edge(), not once(): the window slides forward with price, so a trend would
@@ -1564,7 +1572,7 @@ def _t_range_break(c: EvalCtx, opt: str, p: dict) -> Optional[Fire]:
     # two setups on the same candles with different widths or volume reach this
     # line on different bars, and a shared latch let the first one silence the
     # other.
-    key = f"rb:{tf}:{n}:{unit}:{float(p['max_range_pct'])}:{float(p['vol_mult'])}"
+    key = f"rb:{tf}:{n}:{unit}:{float(p['max_range_pct'])}:{float(p['vol_min'])}"
     if opt == "up":
         if c.edge(key + ":up", px > hi):
             return Fire("long", hi, f"broke {n}x{tf}min range high {hi:.2f} on volume")

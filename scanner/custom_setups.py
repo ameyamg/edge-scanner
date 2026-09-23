@@ -67,6 +67,32 @@ class SetupError(ValueError):
     pass
 
 
+def migrate_trigger(t: dict) -> dict:
+    """A trigger saved under an older parameter meaning, rewritten to the current one.
+
+    Range break: vol_mult compared the 1-minute breaking bar with a whole range
+    candle, so 1.2x on 5-minute candles asked for 6x a normal minute. vol_min
+    compares minute with minute; converting by the candle size keeps every saved
+    setup on exactly the alerts it had.
+    """
+    q = t.get("params") or {}
+    if t.get("id") == "range_break" and "vol_mult" in q and "vol_min" not in q:
+        q = dict(q)
+        try:
+            v = float(q.pop("vol_mult")) * float(q.get("tf", 5) or 5)
+            q["vol_min"] = round(min(30.0, max(1.0, v)), 2)
+        except (TypeError, ValueError):
+            pass
+        return dict(t, params=q)
+    return t
+
+
+def migrate_setup(s: dict) -> dict:
+    if not isinstance(s, dict) or not s.get("triggers"):
+        return s
+    return dict(s, triggers=[migrate_trigger(t) if isinstance(t, dict) else t for t in s["triggers"]])
+
+
 def normalize_setup(raw: dict, *, existing_id: Optional[str] = None) -> dict:
     """Validate + normalise a custom setup definition. Raises SetupError."""
     try:
@@ -115,6 +141,7 @@ def _normalize_setup(raw: dict, *, existing_id: Optional[str] = None) -> dict:
         else:
             opts = []
         params: dict[str, float] = {}
+        t = migrate_trigger(t)
         raw_params = t.get("params") or {}
         if tid in ("vwap_support", "vwap_resistance") and "tol_pct" in raw_params and "tol_unit" not in raw_params:
             # saved before tol_unit existed, when the tolerance was always % of
@@ -267,7 +294,7 @@ class CustomSetupStore:
             for p in sorted(self._dir.glob("*.json")):
                 d = _read_json(p)
                 if isinstance(d, dict) and d.get("id"):
-                    out.append(d)
+                    out.append(migrate_setup(d))
         out.sort(key=lambda s: (s.get("createdAt") or "", s.get("name") or ""))
         return out
 
@@ -276,7 +303,7 @@ class CustomSetupStore:
         if not sid2:
             return None
         d = _read_json(self._dir / f"{sid2}.json")
-        return d if isinstance(d, dict) else None
+        return migrate_setup(d) if isinstance(d, dict) else None
 
     def save(self, raw: dict, *, sid: Optional[str] = None) -> dict:
         s = normalize_setup(raw, existing_id=sid)

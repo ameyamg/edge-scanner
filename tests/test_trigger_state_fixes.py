@@ -169,3 +169,45 @@ def test_short_pct_condition_reads_percent():
     ctx = ConditionCtx(state=None, fundamentals={"short_pct_float": 0.139})
     assert abs(CONDITIONS["short_pct_float"].resolve(ctx, "", {}) - 13.9) < 1e-9
     assert CONDITIONS["short_pct_float"].resolve(ConditionCtx(state=None, fundamentals={}), "", {}) is None
+
+
+# ── range break volume: minute against minute ────────────────────────────────
+
+def _rb_setup(**params):
+    q = {"bars": 5, "tf": 5, "max_range_pct": 1.5}
+    q.update(params)
+    return _setup("cs_rb", [{"id": "range_break", "options": ["up"], "params": q}], direction="long")
+
+
+def _rb_fires(tmp_path, breakout_volume, **params):
+    ev = _evaluator(tmp_path, _rb_setup(**params))
+    st = _state(symbol="AAA", prior_close=100.0)
+    for i, et in enumerate(_minutes("09:30", 25)):              # five quiet 5-min candles
+        _live(ev, st, _bar(100.0 + (i % 2) * 0.1, et=et, sym="AAA", vol=1000.0))
+    return _live(ev, st, _bar(101.0, et="2024-01-02 09:55", sym="AAA", vol=breakout_volume))
+
+
+def test_range_break_compares_the_breaking_minute_with_the_average_minute(tmp_path):
+    # the range trades 1,000 shares a minute: 6x is 6,000
+    assert _rb_fires(tmp_path / "a", 6000.0, vol_min=6.0)
+    assert _rb_fires(tmp_path / "b", 5900.0, vol_min=6.0) == []
+
+
+def test_a_saved_candle_multiple_converts_to_the_same_alerts(tmp_path):
+    # 1.2x a 5-minute candle (5,000) was 6,000 shares; converted to 6.0x a minute
+    from scanner.custom_setups import migrate_trigger
+    t = migrate_trigger({"id": "range_break", "params": {"vol_mult": 1.2, "tf": 5.0}})
+    assert t["params"] == {"vol_min": 6.0, "tf": 5.0}
+    assert _rb_fires(tmp_path / "a", 6000.0, vol_mult=1.2)
+    assert _rb_fires(tmp_path / "b", 5900.0, vol_mult=1.2) == []
+
+
+def test_a_setup_file_saved_before_the_change_loads_converted(tmp_path):
+    import json
+    d = tmp_path / "custom"
+    d.mkdir()
+    (d / "cs_old.json").write_text(json.dumps(_rb_setup(vol_mult=1.2) | {"id": "cs_old"}))
+    store = CustomSetupStore(d, defaults=tmp_path / "none.json")
+    params = store.load_all()[0]["triggers"][0]["params"]
+    assert params["vol_min"] == 6.0 and "vol_mult" not in params
+    assert store.get("cs_old")["triggers"][0]["params"]["vol_min"] == 6.0

@@ -32,7 +32,8 @@ function FeedDots() {
 
 /** "v1.2.0 available" beside the feed dots once the startup check has answered.
  *  The scanner asks GitHub once at startup (scanner/update_check.py); this only
- *  reads the answer. Dismiss hides it for this release until the page reloads. */
+ *  reads the answer. Dismiss hides it for this release until the page reloads.
+ *  The first answer also puts the running version in the browser tab. */
 function UpdateBadge() {
   const [v, setV] = useState<{ latest: string; url: string } | null>(null)
   const [hidden, setHidden] = useState(false)
@@ -40,6 +41,7 @@ function UpdateBadge() {
     let tries = 0
     const t = setInterval(() => {
       api.version().then(r => {
+        if (r.current) document.title = `Edge Scanner v${r.current}`
         if (r.checked) { clearInterval(t); if (r.available && r.latest) setV({ latest: r.latest, url: r.url }) }
         else if (++tries > 20) clearInterval(t)
       }).catch(() => { if (++tries > 20) clearInterval(t) })

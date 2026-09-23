@@ -49,6 +49,7 @@ from scanner.data import FEEDS, make_feed
 from scanner.live_scanner import LiveScanner
 from scanner.market import classify_market
 from scanner.custom_setups import CustomEvaluator
+from scanner import __version__
 from scanner.fundamentals import get_cache as get_fundamentals_cache
 from scanner.profiles import ProfileEngine
 from scanner.events import EventBuffer, make_hodlod_hook   # Dashboard V2 HOD/LOD ticker
@@ -366,7 +367,7 @@ def main() -> None:
     data_desc = args.feed.capitalize()
     if args.feed == "alpaca":
         data_desc += f" ({(os.environ.get('ALPACA_FEED') or 'sip').strip().upper()} feed)"
-    _banner(f"Live Scanner  -- {date.today()}   data: {data_desc}")
+    _banner(f"Edge Scanner v{__version__}  -- {date.today()}   data: {data_desc}")
     TOTAL_STEPS = 6
 
     # ── 1. Universe ───────────────────────────────────────────────────────────
