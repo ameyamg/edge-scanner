@@ -608,6 +608,15 @@ def main() -> None:
     scanner.attach_custom(custom_eval, custom_sink)
     custom_eval.warmup(symbol_daily, bars_5m)
     app_state.custom_eval = custom_eval
+    # Today's bars were replayed into the candle rings above, not through the
+    # triggers. Record where every trigger stands now, so a start after the open
+    # does not alert on the morning's gap, RVOL cross or streak as if new.
+    _spy = scanner._spy_state
+    _primed = custom_eval.prime(scanner._states,
+                                spy_mom_15m=_spy.mom_15m_pct if _spy is not None else None)
+    if _primed:
+        print(f"       Custom setups: {_primed} symbols primed from today's bars "
+              "(events before the start do not alert)", flush=True)
 
     # Universe profiles: the screen each setup is checked against before an
     # alert is emitted. Everything defaults to the empty "up_all" profile, so
