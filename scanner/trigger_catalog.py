@@ -328,7 +328,9 @@ def _build_catalog() -> list[TriggerDef]:
                            # vol_min replaced vol_mult, which compared the 1-minute
                            # breaking bar with a whole range candle; a saved vol_mult
                            # is converted on load (custom_setups.migrate_trigger).
-                           ParamDef("vol_min", "Breakout volume", 6.0, 1, 30, 0.5, "x avg minute",
+                           # Up to 600: a setup saved as 10x on 60-minute candles converts
+                           # to 600x a minute, and clipping it would lower its bar.
+                           ParamDef("vol_min", "Breakout volume", 6.0, 1, 600, 0.5, "x avg minute",
                                     "Volume of the 1-minute bar that leaves the range, against the "
                                     "range's average minute. 6x on a 5-minute range is the same bar "
                                     "as a 1.2x 5-minute candle."),
@@ -1580,8 +1582,9 @@ def _t_range_break(c: EvalCtx, opt: str, p: dict) -> Optional[Fire]:
     cs = c.series.last_completed(tf, n)
     if len(cs) < n:
         return None
-    # Note the early returns below leave the latch untouched on purpose: a bar
-    # with no qualifying range is not evidence that price came back inside one.
+    # The early returns up to the width check leave the latch untouched on
+    # purpose: a bar with no qualifying range is not evidence that price came
+    # back inside one.
     hi = max(x["high"] for x in cs)
     lo = min(x["low"] for x in cs)
     mid = (hi + lo) / 2.0
@@ -1592,15 +1595,6 @@ def _t_range_break(c: EvalCtx, opt: str, p: dict) -> Optional[Fire]:
     limit = range_width_limit(c, cs, tf, n, unit, float(p["max_range_pct"]))
     if limit is None or hi - lo > limit:
         return None
-    # Volume on the breaking bar, against the average INSIDE the range. A
-    # consolidation is quiet by construction, so this asks whether anything
-    # actually showed up to break it rather than whether it drifted out.
-    # Per minute on both sides: the breaking bar is one minute and the range
-    # candles are tf minutes (found by neusse, edge-scanner #18).
-    vols = [float(x.get("volume") or 0.0) for x in cs]
-    avg = sum(vols) / (len(vols) * tf) if vols else 0.0
-    if avg > 0 and float(c.bar.get("volume") or 0.0) < avg * float(p["vol_min"]):
-        return None
     px = float(c.bar["close"])
     # edge(), not once(): the window slides forward with price, so a trend would
     # keep presenting a fresh "range" and re-fire on every bar. Latching on
@@ -1610,13 +1604,28 @@ def _t_range_break(c: EvalCtx, opt: str, p: dict) -> Optional[Fire]:
     # line on different bars, and a shared latch let the first one silence the
     # other.
     key = f"rb:{tf}:{n}:{unit}:{float(p['max_range_pct'])}:{float(p['vol_min'])}"
-    if opt == "up":
-        if c.edge(key + ":up", px > hi):
-            return Fire("long", hi, f"broke {n}x{tf}min range high {hi:.2f} on volume")
+    key += ":up" if opt == "up" else ":dn"
+    # Back inside a qualifying range re-arms, however quiet the bar. The volume
+    # test used to come first, so a quiet return inside left the latch set and
+    # every later break that day was silenced (audit 3, C3).
+    if not (px > hi if opt == "up" else px < lo):
+        c.rearm(key)
         return None
-    if c.edge(key + ":dn", px < lo):
-        return Fire("short", lo, f"broke {n}x{tf}min range low {lo:.2f} on volume")
-    return None
+    # Volume on the breaking bar, against the average INSIDE the range. A
+    # consolidation is quiet by construction, so this asks whether anything
+    # actually showed up to break it rather than whether it drifted out.
+    # Per minute on both sides: the breaking bar is one minute and the range
+    # candles are tf minutes (found by neusse, edge-scanner #18). A quiet drift
+    # outside leaves the latch alone, so a loud bar still outside can fire.
+    vols = [float(x.get("volume") or 0.0) for x in cs]
+    avg = sum(vols) / (len(vols) * tf) if vols else 0.0
+    if avg > 0 and float(c.bar.get("volume") or 0.0) < avg * float(p["vol_min"]):
+        return None
+    if not c.edge(key, True):
+        return None
+    if opt == "up":
+        return Fire("long", hi, f"broke {n}x{tf}min range high {hi:.2f} on volume")
+    return Fire("short", lo, f"broke {n}x{tf}min range low {lo:.2f} on volume")
 
 
 @_impl("ema_cross_ema")

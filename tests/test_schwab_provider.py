@@ -276,3 +276,23 @@ def test_other_bar_sizes_never_replace_the_5_minute_cache(tmp_path):
     assert not (tmp_path / "m" / "AAA.parquet").exists()
     f.get_historical_bars("AAA", "5Min", date(2026, 1, 5), date(2026, 1, 20))
     assert (tmp_path / "m" / "AAA.parquet").exists()
+
+
+def test_a_lower_chart_cap_on_a_small_universe_still_polls_the_overflow(monkeypatch):
+    """250 symbols fit under the 300 cap, so nothing was polled at the start and
+    the poller never started. Schwab then reports a cap of 200: the 50 moved to
+    polling were advertised as polled but nothing polled them (audit 3, C11)."""
+    import json
+    started = []
+    real = sw.threading.Thread
+    class Recorded(real):
+        def start(self):
+            started.append(self.name)
+    monkeypatch.setattr(sw.threading, "Thread", Recorded)
+    sent = []
+    feed, stream = _fake_feed(monkeypatch, sent)
+    feed.subscribe_minute_bars([f"S{i}" for i in range(250)], lambda bar: None)
+    stream.receiver(json.dumps({"response": [{"service": "CHART_EQUITY", "content": {
+        "code": 19, "msg": "max (CHART_EQUITY=200, DISCARDED=50)"}}]}))
+    assert len(feed.streamed_symbols) == 200 and len(feed.polled_symbols) == 50
+    assert {"schwab-quote-poll", "schwab-quote-bars"} <= set(started)

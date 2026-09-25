@@ -874,3 +874,17 @@ def test_saved_vwap_tolerances_keep_meaning_percent_of_price():
     not turn into 0.1% of ATR under the new default unit."""
     got = normalize_setup(_setup("s1", [{"id": "vwap_resistance", "options": ["1"], "params": {"tol_pct": 0.1}}]))
     assert got["triggers"][0]["params"] == {"tol_pct": 0.1, "tol_unit": 0.0}
+
+
+def test_validation_errors_keep_their_own_message():
+    """SetupError is a ValueError, so it used to be re-wrapped as "a numeric field
+    has an invalid value (unknown trigger ...)"."""
+    from scanner.custom_setups import SetupError, normalize_setup
+    base = {"id": "cs_x", "name": "x", "direction": "long",
+            "triggers": [{"id": "range_break", "options": ["up"], "params": {}}]}
+    with pytest.raises(SetupError) as exc:
+        normalize_setup(dict(base, triggers=[{"id": "no_such_trigger", "options": [], "params": {}}]))
+    assert str(exc.value) == "unknown trigger 'no_such_trigger'"
+    for bad in (1e999, float("nan"), "1e999", 10 ** 400):             # still a clean 400, not a 500
+        with pytest.raises(SetupError, match="numeric field"):
+            normalize_setup(dict(base, repeat_sec=bad))

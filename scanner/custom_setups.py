@@ -80,7 +80,7 @@ def migrate_trigger(t: dict) -> dict:
         q = dict(q)
         try:
             v = float(q.pop("vol_mult")) * float(q.get("tf", 5) or 5)
-            q["vol_min"] = round(min(30.0, max(1.0, v)), 2)
+            q["vol_min"] = round(max(1.0, v), 2)      # never clipped: see vol_min's max
         except (TypeError, ValueError):
             pass
         return dict(t, params=q)
@@ -97,6 +97,8 @@ def normalize_setup(raw: dict, *, existing_id: Optional[str] = None) -> dict:
     """Validate + normalise a custom setup definition. Raises SetupError."""
     try:
         return _normalize_setup(raw, existing_id=existing_id)
+    except SetupError:
+        raise                 # already says what is wrong (it is a ValueError too)
     except (ValueError, TypeError, OverflowError) as exc:
         # "abc", NaN, infinity or a list where a number belongs. The API maps
         # SetupError to a 400; anything else would surface as a 500.
@@ -187,7 +189,7 @@ def _normalize_setup(raw: dict, *, existing_id: Optional[str] = None) -> dict:
     color = str(raw.get("color") or "#3b82f6")
     if not re.match(r"^#[0-9a-fA-F]{6}$", color):
         color = "#3b82f6"
-    now = pd.Timestamp.utcnow().isoformat()
+    now = pd.Timestamp.now("UTC").isoformat()
     return {
         "id": sid,
         "name": name,
@@ -430,7 +432,7 @@ class CustomEvaluator:
         self._and_seen: dict[tuple[str, str], dict[str, float]] = {}
         self._stats: dict[str, dict[str, int]] = {}                  # setup -> {trigger key: fires}
         self._last_eval: dict[str, dict[str, dict]] = {}             # symbol -> {key: {fired, value, note, ts}}
-        self._since = pd.Timestamp.utcnow().isoformat()
+        self._since = pd.Timestamp.now("UTC").isoformat()
         self._lock = threading.Lock()
         self._sink_cooldown_min = sink_cooldown_min
         # scanner.recent_activity.RecentActivity, set by LiveScanner: records the
@@ -486,7 +488,7 @@ class CustomEvaluator:
         self._and_seen.clear()
         self._stats = {}
         self._last_eval = {}
-        self._since = pd.Timestamp.utcnow().isoformat()
+        self._since = pd.Timestamp.now("UTC").isoformat()
 
     # ── per bar ──
     def on_bar(self, state: Any, bar: dict, external: Optional[set[str]] = None,

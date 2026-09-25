@@ -161,7 +161,7 @@ def test_a_small_downward_revision_adds_nothing():
     clock.t += 5; b.on_quote("AAPL", last=50.1, total_volume=1_000_300)      # revised down by 100
     clock.t += 5; b.on_quote("AAPL", last=50.2, total_volume=1_000_500)
     clock.t += 70; b.flush()
-    assert bars[0]["volume"] == 600                                          # 400 + 200, not a million
+    assert bars[0]["volume"] == 500                                          # the net climb, not a million
 
 
 def test_scale_puts_built_volume_on_the_providers_bar_footing():
@@ -171,3 +171,24 @@ def test_scale_puts_built_volume_on_the_providers_bar_footing():
     clock.t += 5; b.on_quote("AAPL", last=50.1, total_volume=1_400)
     clock.t += 70; b.flush()
     assert bars[0]["volume"] == 300
+
+
+def test_volume_counts_only_above_the_high_water_mark():
+    """A stale snapshot flapping the total down and back used to add the gap
+    again on every cycle (audit 3, C4)."""
+    b, bars, clock = _builder()
+    b.on_quote("AAPL", last=50.0, total_volume=1_000)
+    for total in (1_100, 1_050, 1_100, 1_050, 1_100):
+        clock.t += 2; b.on_quote("AAPL", last=50.1, total_volume=total)
+    clock.t += 2; b.on_quote("AAPL", last=50.2, total_volume=1_150)
+    clock.t += 70; b.flush()
+    assert bars[0]["volume"] == 150                                          # 1,000 -> 1,150
+
+
+def test_a_counter_reset_still_counts_after_the_high_water_mark():
+    b, bars, clock = _builder()
+    b.on_quote("AAPL", last=50.0, total_volume=1_000_000)
+    clock.t += 5; b.on_quote("AAPL", last=50.1, total_volume=1_000_400)
+    clock.t += 5; b.on_quote("AAPL", last=50.1, total_volume=300)           # collapsed: a new day counter
+    clock.t += 70; b.flush()
+    assert bars[0]["volume"] == 700

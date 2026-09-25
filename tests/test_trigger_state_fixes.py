@@ -10,6 +10,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pandas as pd
+import pytest
 
 from scanner.conditions import CATALOG as CONDITIONS, ConditionCtx
 from scanner.custom_setups import CustomEvaluator, CustomSetupStore
@@ -211,3 +212,54 @@ def test_a_setup_file_saved_before_the_change_loads_converted(tmp_path):
     params = store.load_all()[0]["triggers"][0]["params"]
     assert params["vol_min"] == 6.0 and "vol_mult" not in params
     assert store.get("cs_old")["triggers"][0]["params"]["vol_min"] == 6.0
+
+
+# ── range break re-arms on a quiet return inside (audit 3, C3) ───────────────
+
+def test_range_break_rearms_after_a_quiet_return_inside(tmp_path):
+    """The volume test ran before the inside check, so a quiet bar back inside
+    never cleared the latch and every later break that day was silenced."""
+    ev = _evaluator(tmp_path, _rb_setup(vol_min=6.0))
+    st = _state(symbol="AAA", prior_close=100.0)
+    for i, et in enumerate(_minutes("09:30", 25)):              # five quiet 5-min candles
+        _live(ev, st, _bar(100.0 + (i % 2) * 0.1, et=et, sym="AAA", vol=1000.0))
+    assert _live(ev, st, _bar(101.0, et="2024-01-02 09:55", sym="AAA", vol=6000.0))
+    for i, et in enumerate(_minutes("09:56", 29)):              # quiet, back inside, until
+        _live(ev, st, _bar(100.0 + (i % 2) * 0.1, et=et, sym="AAA", vol=1000.0))   # the break leaves the window
+    assert _live(ev, st, _bar(101.0, et="2024-01-02 10:25", sym="AAA", vol=6000.0))
+
+
+def test_range_break_quiet_drift_outside_then_volume_still_fires(tmp_path):
+    ev = _evaluator(tmp_path, _rb_setup(vol_min=6.0))
+    st = _state(symbol="AAA", prior_close=100.0)
+    for i, et in enumerate(_minutes("09:30", 25)):
+        _live(ev, st, _bar(100.0 + (i % 2) * 0.1, et=et, sym="AAA", vol=1000.0))
+    assert _live(ev, st, _bar(101.0, et="2024-01-02 09:55", sym="AAA", vol=1000.0)) == []
+    assert _live(ev, st, _bar(101.05, et="2024-01-02 09:56", sym="AAA", vol=8000.0))
+
+
+def test_range_break_fires_once_per_exit(tmp_path):
+    ev = _evaluator(tmp_path, _rb_setup(vol_min=6.0))
+    st = _state(symbol="AAA", prior_close=100.0)
+    for i, et in enumerate(_minutes("09:30", 25)):
+        _live(ev, st, _bar(100.0 + (i % 2) * 0.1, et=et, sym="AAA", vol=1000.0))
+    assert _live(ev, st, _bar(101.0, et="2024-01-02 09:55", sym="AAA", vol=6000.0))
+    assert _live(ev, st, _bar(101.1, et="2024-01-02 09:56", sym="AAA", vol=9000.0)) == []
+
+
+# ── saved range-break thresholds are never clipped (audit 3, C2) ─────────────
+
+@pytest.mark.parametrize("tf", [1, 5, 15, 30, 60])
+@pytest.mark.parametrize("mult", [1.0, 1.5, 10.0])
+def test_saved_range_conversion_preserves_every_legacy_value(tmp_path, tf, mult):
+    """Old maximum 10x on 60-minute candles is 600x a minute. The load converts
+    it, and a re-save (normalize_setup) must keep it too."""
+    import json
+    from scanner.custom_setups import normalize_setup
+    d = tmp_path / "custom"
+    d.mkdir()
+    (d / "cs_old.json").write_text(json.dumps(_rb_setup(vol_mult=mult, tf=tf) | {"id": "cs_old"}))
+    loaded = CustomSetupStore(d, defaults=tmp_path / "none.json").get("cs_old")
+    assert loaded["triggers"][0]["params"]["vol_min"] == pytest.approx(mult * tf)
+    resaved = normalize_setup(loaded, existing_id="cs_old")
+    assert resaved["triggers"][0]["params"]["vol_min"] == pytest.approx(mult * tf)

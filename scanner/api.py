@@ -65,6 +65,39 @@ LOCAL_ORIGIN_RE = r"^https?://(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$"
 DEFAULT_HOST = "127.0.0.1"
 
 
+def port_owner(port: int) -> Optional[tuple[int, str]]:
+    """(pid, command line) of whatever listens on `port`, best effort, or None.
+    Only called after a bind has already failed, to say who is in the way."""
+    import subprocess
+    import sys
+    try:
+        if sys.platform == "win32":
+            out = subprocess.run(["netstat", "-ano", "-p", "TCP"], capture_output=True, text=True, timeout=5).stdout
+            out += subprocess.run(["netstat", "-ano", "-p", "TCPv6"], capture_output=True, text=True, timeout=5).stdout
+            pid = next((int(f[-1]) for f in (line.split() for line in out.splitlines())
+                        if len(f) >= 5 and f[3] == "LISTENING" and f[1].endswith(f":{port}")), None)
+            if pid is None:
+                return None
+            cmd = subprocess.run(["powershell", "-NoProfile", "-Command",
+                                  f"(Get-CimInstance Win32_Process -Filter 'ProcessId={pid}').CommandLine"],
+                                 capture_output=True, text=True, timeout=10).stdout.strip()
+        else:
+            out = subprocess.run(["lsof", "-nP", f"-iTCP:{port}", "-sTCP:LISTEN", "-Fpc"],
+                                 capture_output=True, text=True, timeout=5).stdout.split()
+            pid = next((int(x[1:]) for x in out if x.startswith("p")), None)
+            if pid is None:
+                return None
+            cmd = next((x[1:] for x in out if x.startswith("c")), "")
+        return pid, " ".join((cmd or "an unknown program").split())[:200]
+    except Exception:
+        return None
+
+
+def _stop_command(pid: int) -> str:
+    import sys
+    return f"taskkill /PID {pid} /F" if sys.platform == "win32" else f"kill {pid}"
+
+
 def bind_sockets(host: str, port: int) -> list:
     """Listening sockets for uvicorn's `Server.run(sockets=...)`.
 
@@ -100,8 +133,11 @@ def bind_sockets(host: str, port: int) -> list:
                 continue
             for o in out:
                 o.close()
-            raise OSError(exc.errno, f"cannot listen on [{addr}]:{port}: {exc.strerror or exc}. "
-                                     "Is another scanner, or another program, already using that port?") from exc
+            owner = port_owner(port)
+            hint = (f"It is held by {owner[1]} (PID {owner[0]}). If that is an old scanner, close its "
+                    f"window, or stop it with: {_stop_command(owner[0])}" if owner else
+                    "Is another scanner, or another program, already using that port?")
+            raise OSError(exc.errno, f"cannot listen on [{addr}]:{port}: {exc.strerror or exc}. {hint}") from exc
     return out
 
 

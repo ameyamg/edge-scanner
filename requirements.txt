@@ -1,16 +1,19 @@
 # Python 3.11+
-alpaca-py>=0.38.0
-pandas>=2.0.0
-numpy>=1.26
-pyarrow>=14.0.0
-python-dotenv>=1.0.0
-requests>=2.31.0
-lxml>=4.9.0
-fastapi>=0.111.0
-uvicorn[standard]>=0.29.0
-websockets>=12.0
-yfinance>=0.2.40
-schwabdev>=4.0                  # only for DATA_PROVIDER=schwab (MIT, github.com/tylerebowers/Schwabdev)
+# Upper bounds stop the next major release of a library reaching a fresh install
+# untested. Tested on both ends: the floors, and the newest versions as of
+# 2026-09-25 (pandas 3.0, FastAPI 0.141 / Starlette 1.7, websockets 17, pyarrow 25).
+alpaca-py>=0.38.0,<1
+pandas>=2.0.0,<4
+numpy>=1.26,<3
+pyarrow>=14.0.1,<26             # 14.0.0 has CVE-2023-47248
+python-dotenv>=1.0.0,<2
+requests>=2.31.0,<3
+lxml>=4.9.0,<7
+fastapi>=0.120.1,<1             # first to allow Starlette 0.49.1 (FileResponse range DoS fix)
+uvicorn[standard]>=0.29.0,<1
+websockets>=12.0,<18
+yfinance>=1.2.2,<2              # 1.2.2+ requires curl_cffi 0.15+ (redirect advisory fix)
+schwabdev>=4.0,<5               # only for DATA_PROVIDER=schwab (MIT, github.com/tylerebowers/Schwabdev)
 
 # Tests (the FastAPI/Starlette test client needs httpx, or httpx2 on Starlette 1.x)
 pytest>=8.0.0

@@ -1,4 +1,4 @@
 """Edge Scanner."""
 
 # Bumped by each public release (tag vX.Y.Z). The update check compares it to GitHub.
-__version__ = "1.2.0"
+__version__ = "1.2.1"

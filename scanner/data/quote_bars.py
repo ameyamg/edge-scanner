@@ -39,7 +39,8 @@ built bars' volume run far above a real bar's:
     reset" added the whole day's volume again: over an afternoon some symbols
     carried 2.5 times the volume the provider itself reported. Only a collapse
     to a small fraction of the previous total is a reset; a small decrease is a
-    correction and adds nothing.
+    correction and adds nothing, and volume counts again only above the highest
+    total seen.
   * A provider's own minute bars may count fewer prints than its cumulative
     volume does. Schwab's carry 60 to 85 percent of it, evenly through the day
     and steady per symbol (odd lots, most likely). Relative volume divides
@@ -170,10 +171,12 @@ class QuoteBarBuilder:
             elif total < s.total * _RESET_FRACTION:
                 delta = total             # the day counter was reset: this traded since
             else:
-                delta = 0.0               # a small downward revision: a correction, not new volume
-            s.total = total
-            if delta <= 0:
+                # A small downward revision: a correction or a stale snapshot, not
+                # new volume. The high-water mark stays, so the climb back to it is
+                # not counted a second time (a flapping total used to add the gap
+                # on every cycle; audit 3, C4).
                 return
+            s.total = total
             delta *= s.scale
 
             minute = int(self._clock() // 60)

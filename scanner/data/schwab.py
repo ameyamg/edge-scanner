@@ -723,7 +723,11 @@ class SchwabFeed(DataFeed):
                 except Exception as exc:
                     log.error("quote bar flush failed: %s", exc, exc_info=True)
 
-        if synthetic and rest:
+        # Whenever synthetic bars are on, even with nothing to poll yet: a lower
+        # cap reported by Schwab moves symbols to polling after this point, and
+        # without these threads they were advertised as polled but went dead
+        # (audit 3, C11). An empty poll list costs no requests.
+        if synthetic:
             threading.Thread(target=_flush, daemon=True, name="schwab-quote-bars").start()
             threading.Thread(target=_poll, daemon=True, name="schwab-quote-poll").start()
 

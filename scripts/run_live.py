@@ -369,6 +369,14 @@ def main() -> None:
     if args.feed == "alpaca":
         data_desc += f" ({(os.environ.get('ALPACA_FEED') or 'sip').strip().upper()} feed)"
     _banner(f"Edge Scanner v{__version__}  -- {date.today()}   data: {data_desc}")
+    # A port still held by an old scanner used to surface only after the whole
+    # warmup, minutes later, as a traceback. Try it now and say who holds it.
+    try:
+        for _s in bind_sockets(args.host, args.port):
+            _s.close()
+    except OSError as exc:
+        print(f"\n  {exc}\n", flush=True)
+        sys.exit(1)
     TOTAL_STEPS = 6
 
     # ── 1. Universe ───────────────────────────────────────────────────────────
@@ -584,7 +592,13 @@ def main() -> None:
     _server_cfg = uvicorn.Config(_api_app, host=args.host, port=args.port, log_level="warning")
     _api_server = uvicorn.Server(_server_cfg)
     local_guard.allow_hosts(args.host)     # a --host other than loopback is a deliberate LAN name
-    _api_socks = bind_sockets(args.host, args.port)
+    try:
+        _api_socks = bind_sockets(args.host, args.port)
+    except OSError as exc:
+        print(f"
+  {exc}
+", flush=True)
+        sys.exit(1)
     _api_thread = threading.Thread(target=_api_server.run, kwargs={"sockets": _api_socks},
                                    daemon=True, name="api-server")
     _api_thread.start()
