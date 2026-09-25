@@ -21,6 +21,7 @@ from fastapi.responses import JSONResponse, RedirectResponse
 
 from fastapi import Request as _Request
 
+from scanner import local_guard
 from scanner.feed_hub import FeedHub, Subscription
 
 if TYPE_CHECKING:
@@ -105,12 +106,10 @@ def bind_sockets(host: str, port: int) -> list:
 
 
 def origin_is_local(origin: Optional[str], host: Optional[str] = None) -> bool:
-    """True for a missing Origin (scripts, bots), one on this machine, or the
-    page this server itself served (same host:port, which covers --host on a LAN)."""
-    import re
-    if not origin or re.match(LOCAL_ORIGIN_RE, origin) is not None:
-        return True
-    return bool(host) and origin.split("://", 1)[-1] == host
+    """True for a missing Origin (scripts, bots) or one on this machine or an
+    allowed --host name. `host` is ignored on purpose: it is the request's own
+    Host header, which a DNS-rebinding page controls (scanner/local_guard.py)."""
+    return local_guard.origin_allowed(origin)
 
 
 def _premarket_result(app_state: "AppState", items: list[dict], pm_keep: dict, symbols_total: int) -> dict:
@@ -153,6 +152,8 @@ def create_app(app_state: AppState) -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    # Added last, so it runs first: Host / Origin / content-type checks.
+    app.add_middleware(local_guard.LocalOnlyMiddleware)
 
     # ── Startup: launch WS broadcaster ───────────────────────────────────────
 

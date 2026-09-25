@@ -748,6 +748,8 @@ class CustomEvaluator:
                 try:
                     if t["id"] in ("cross_above", "cross_below") or t["id"] == "back_to_ema":
                         level = ctx.level(o if not o.startswith("ema") or "_" in o else o)
+                    elif t["id"] == "vwap_cross_confirmed":
+                        level = ctx.level("vwap")
                     elif t["id"] in ("prior_day_break",):
                         level = ctx.level("prior_high" if o == "high" else "prior_low")
                     elif t["id"] in ("pm_break",):

@@ -7,7 +7,7 @@
     "nothing is enforced anywhere and behaviour is unchanged.",
     "",
     "up_liquid_movers reproduces the screen build_universe.py applies today",
-    "(price >= 15, adv20 >= 5M, dollar volume >= 50M, ATR% >= 1). Assigning it",
+    "(price >= 15, dollar volume >= 150M, ATR% >= 1; the share-volume floor was dropped 2026-09-25). Assigning it",
     "to the system setups is what makes widening the base universe safe: every",
     "symbol in today's 243-name universe already passes all four by",
     "construction, so the alert stream is unchanged until the universe grows.",
@@ -29,12 +29,11 @@
     {
       "id": "up_liquid_movers",
       "name": "Liquid movers",
-      "desc": "The screen build_universe.py applies today, expressed as a profile. Large and mid caps that actually move: enough dollar volume to get filled, enough daily range to pay.",
+      "desc": "Large and mid caps that actually move: enough dollar volume to get filled, enough daily range to pay. Dollar volume only, no share-volume floor, so high-priced names are not penalized.",
       "color": "#3b82f6",
       "conditions": [
         { "id": "price", "op": "gte", "value": 15 },
-        { "id": "avg_vol_20d", "op": "gte", "value": 5000000 },
-        { "id": "avg_dollar_vol_20d", "op": "gte", "value": 50000000 },
+        { "id": "avg_dollar_vol_20d", "op": "gte", "value": 150000000 },
         { "id": "atr_pct", "op": "gte", "value": 1.0 }
       ],
       "source": "system"

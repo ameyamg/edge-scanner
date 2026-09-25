@@ -359,6 +359,12 @@ class SchwabFeed(DataFeed):
 
     def get_historical_bars(self, symbol: str, timeframe: Timeframe,
                             start: date, end: date) -> pd.DataFrame:
+        # The cache is keyed by symbol alone and holds the 5-minute history the
+        # volume profile is built from. Any other bar size is fetched uncached:
+        # cached under the same name it would replace that history, which is how
+        # a 1-minute replay fetch inflated Alpaca's RVOL about 5x on 2026-09-23.
+        if timeframe != "5Min":
+            return self._price_history(symbol, timeframe, start, end)
         p = self._intraday_cache_dir / f"{symbol}.parquet"
         if p.exists():
             cached = parquet.load(symbol, self._intraday_cache_dir)

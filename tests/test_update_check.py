@@ -10,8 +10,9 @@ def test_version_parsing_and_comparison():
 
 def test_newer_release_is_reported(capsys, monkeypatch):
     monkeypatch.setattr(uc, "__version__", "1.0.0")
-    r = uc.check_once(fetch=lambda: {"tag_name": "v9.0.0", "html_url": "https://example.test/r", "name": "Edge Scanner v9"})
-    assert r.available and r.latest == "v9.0.0" and r.url == "https://example.test/r"
+    url = uc.RELEASES_PAGE + "/tag/v9.0.0"
+    r = uc.check_once(fetch=lambda: {"tag_name": "v9.0.0", "html_url": url, "name": "Edge Scanner v9"})
+    assert r.available and r.latest == "v9.0.0" and r.url == url
     assert "newer release" in capsys.readouterr().out
     assert uc.info().as_dict()["available"] is True
 
@@ -34,3 +35,17 @@ def test_switch_off(monkeypatch):
     assert not uc.enabled()
     monkeypatch.setenv("UPDATE_CHECK", "1")
     assert uc.enabled()
+
+
+def test_release_link_and_text_are_constrained(capsys, monkeypatch):
+    """A hostile or broken response cannot point the banner elsewhere or print escapes."""
+    monkeypatch.setattr(uc, "__version__", "1.0.0")
+    r = uc.check_once(fetch=lambda: {"tag_name": "v9.0.0", "html_url": "https://evil.example/x",
+                                     "name": "ok[31mred" + "x" * 500})
+    assert r.url == uc.RELEASES_PAGE
+    assert "" not in r.title and len(r.title) <= 120
+    r = uc.check_once(fetch=lambda: {"tag_name": "v9.0.0[2J", "html_url": uc.RELEASES_PAGE})
+    assert r.latest is None and not r.available
+    assert "" not in capsys.readouterr().out
+    r = uc.check_once(fetch=lambda: ["not", "a", "dict"])
+    assert r.checked and not r.available and r.error

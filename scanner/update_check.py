@@ -6,7 +6,8 @@ who Watch releases). This asks GitHub's public releases endpoint once, on a
 background thread, and remembers the answer for the dashboard and the terminal.
 
 What goes out: one GET to api.github.com for the latest release of the public
-repo. GitHub sees your IP and nothing else: no key, no symbols, no settings.
+repo. GitHub sees your IP and the scanner version (in the User-Agent), nothing
+else: no key, no symbols, no settings.
 Turn it off with UPDATE_CHECK=0 in .env. It never downloads or installs
 anything; the banner links to the release notes and the update is `git pull`.
 """
@@ -28,6 +29,14 @@ log = logging.getLogger(__name__)
 RELEASES_API = "https://api.github.com/repos/simonro/edge-scanner/releases/latest"
 RELEASES_PAGE = "https://github.com/simonro/edge-scanner/releases"
 _TIMEOUT = 6.0
+_MAX_BYTES = 256 * 1024                   # a release JSON is a few KB
+_TAG_RE = re.compile(r"^v?\d+\.\d+\.\d+[0-9A-Za-z.\-]{0,20}$")
+_URL_PREFIX = RELEASES_PAGE + "/"
+
+
+def _clean(text: str, limit: int) -> str:
+    """Printable characters only (no terminal escapes), capped."""
+    return "".join(ch for ch in str(text) if ch.isprintable())[:limit]
 
 
 def parse_version(v: str) -> tuple[int, ...]:
@@ -79,11 +88,17 @@ def check_once(fetch=None) -> UpdateInfo:
                     "User-Agent": f"edge-scanner/{__version__}",
                 })
                 with urllib.request.urlopen(req, timeout=_TIMEOUT) as r:
-                    return json.loads(r.read().decode("utf-8"))
+                    return json.loads(r.read(_MAX_BYTES + 1)[:_MAX_BYTES].decode("utf-8"))
         data = fetch()
-        result.latest = str(data.get("tag_name") or "")
-        result.url = str(data.get("html_url") or RELEASES_PAGE)
-        result.title = str(data.get("name") or "")
+        if not isinstance(data, dict):
+            raise ValueError("unexpected release payload")
+        tag = str(data.get("tag_name") or "")
+        # Only a well-formed version tag counts, and the link only ever points
+        # at this repo's releases, whatever the response says.
+        result.latest = tag if _TAG_RE.match(tag) else None
+        url = str(data.get("html_url") or "")
+        result.url = url if url.startswith(_URL_PREFIX) and _clean(url, 300) == url else RELEASES_PAGE
+        result.title = _clean(data.get("name") or "", 120)
     except Exception as exc:                  # offline, rate limited, GitHub down: all fine
         result.error = str(exc)[:200]
         log.debug("update check failed: %s", exc)

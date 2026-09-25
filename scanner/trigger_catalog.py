@@ -289,6 +289,13 @@ def _build_catalog() -> list[TriggerDef]:
                    "or above it. Candle size picks the chart: on 5 min it takes a 5-minute close "
                    "through the level, so a 1-minute poke that fails inside the candle does not count.",
                    "short", LEVELS, "Level", params=(_CROSS_TF,), default_options=("vwap",)))
+    add(TriggerDef("vwap_cross_confirmed", "VWAP cross confirmed", "Crosses & levels",
+                   "A completed candle crosses VWAP, then the immediately next candle closes "
+                   "on the same side. Fires on confirmation, not on the crossing candle. "
+                   "Each close uses its own VWAP; wicks and candle color do not decide confirmation.",
+                   "both", (OptionDef("above", "Cross above", "long"),
+                            OptionDef("below", "Cross below", "short")), "Direction",
+                   params=(_CROSS_TF,), sessions=("rth",), default_options=("above", "below")))
     add(TriggerDef("vwap_v", "V off VWAP", "Crosses & levels",
                    "A sharp V into VWAP and straight back out. Price was well away from VWAP, "
                    "came to it without lingering, touched it, and the touch candle closed back "
@@ -1360,6 +1367,36 @@ def _candle_cross(c: EvalCtx, opt: str, tf: int, up: bool) -> Optional[Fire]:
     if not up and prev["close"] >= lp and cur["close"] < lc:
         return Fire("short", lc, f"{label} close crossed below {_level_label(opt)} {lc:.2f}")
     return None
+
+
+@_impl("vwap_cross_confirmed")
+def _t_vwap_cross_confirmed(c: EvalCtx, opt: str, p: dict) -> Optional[Fire]:
+    tf = int(p.get("tf", 1) or 1)
+    if tf not in TIMEFRAMES or not c.series.completed[tf] or c.session != "rth":
+        return None
+    candles = c.series.last_completed(tf, 3)
+    if len(candles) != 3:
+        return None
+    before, cross, confirm = candles
+    keys = [x.get("key") for x in candles]
+    if any(not k or len(k) != 3 for k in keys):
+        return None
+    if any(k[:2] != keys[-1][:2] for k in keys) or keys[-1][1] != "rth":
+        return None
+    if keys[1][2] != keys[0][2] + 1 or keys[2][2] != keys[1][2] + 1:
+        return None
+    if any(x.get("vwap") is None for x in candles):
+        return None
+    up = opt == "above"
+    if opt not in ("above", "below"):
+        return None
+    a, b, d = (x["close"] - x["vwap"] for x in candles)
+    ok = a <= 0 and b > 0 and d > 0 if up else a >= 0 and b < 0 and d < 0
+    if not ok:
+        return None
+    side = "above" if up else "below"
+    return Fire("long" if up else "short", confirm["vwap"],
+                f"{TF_LABEL[tf]} VWAP cross {side} confirmed by the next candle close")
 
 
 def _level_label(key: str) -> str:

@@ -161,8 +161,10 @@ def test_origin_policy():
     assert origin_is_local("http://127.0.0.1:7777")
     assert not origin_is_local("https://example.com")
     assert not origin_is_local("http://localhost.example.com")
-    assert origin_is_local("http://192.168.1.5:7777", host="192.168.1.5:7777")    # --host on a LAN
-    assert not origin_is_local("http://192.168.1.9:7777", host="192.168.1.5:7777")
+    # The request's own Host no longer vouches for an Origin: a DNS-rebinding page
+    # controls both. A LAN name has to be allowed on purpose (--host or env).
+    assert not origin_is_local("http://rebind.evil.example:7777", host="rebind.evil.example:7777")
+    assert not origin_is_local("http://192.168.1.5:7777", host="192.168.1.5:7777")
 
 
 def test_servers_bind_loopback_by_default():

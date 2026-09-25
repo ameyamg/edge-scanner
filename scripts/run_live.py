@@ -43,6 +43,7 @@ os.chdir(_REPO_ROOT)
 sys.path.insert(0, str(_REPO_ROOT))
 load_dotenv(override=True)
 
+from scanner import local_guard
 from scanner.api import AppState, bind_sockets, create_app
 from scanner.feed_hub import FeedHub
 from scanner.data import FEEDS, make_feed
@@ -582,6 +583,7 @@ def main() -> None:
     print(f"       Dashboard V2: http://localhost:{args.port}/v2  (build: npm --prefix dashboard-v2 run build)", flush=True)
     _server_cfg = uvicorn.Config(_api_app, host=args.host, port=args.port, log_level="warning")
     _api_server = uvicorn.Server(_server_cfg)
+    local_guard.allow_hosts(args.host)     # a --host other than loopback is a deliberate LAN name
     _api_socks = bind_sockets(args.host, args.port)
     _api_thread = threading.Thread(target=_api_server.run, kwargs={"sockets": _api_socks},
                                    daemon=True, name="api-server")

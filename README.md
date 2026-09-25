@@ -35,7 +35,9 @@ stopped paying for a scanner, how the setups are built, and the app running on a
 ## Privacy and your data
 
 Edge Scanner is local-first. The scanner and the dashboard listen on `localhost` only, and there is
-no login because nothing is exposed to the network.
+no login because nothing is exposed to the network. Requests must also be addressed to this machine
+by name, and settings can only be changed from a page this machine served, so a web page you visit
+cannot reach the scanner through your browser.
 
 - **Stays on your machine:** your API keys in `.env`, the setups, universe filters, watchlists and
   screens you build, the bar caches, and the alert archives. All of it under `data/`, which is
@@ -46,7 +48,7 @@ no login because nothing is exposed to the network.
   headlines from Yahoo Finance and Nasdaq RSS. Those services see the symbol being requested and
   your IP. Turn the news ones off with `NEWS_RSS_SOURCES=` in `.env`.
 - **Goes out, once at startup:** one anonymous request to GitHub's public releases page, to tell you
-  in the dashboard when a newer release exists. GitHub sees your IP and nothing else. Nothing is
+  in the dashboard when a newer release exists. GitHub sees your IP and the scanner version, nothing else. Nothing is
   downloaded or installed; the update is `git pull`. Turn it off with `UPDATE_CHECK=0` in `.env`.
 - **Never collected:** no analytics, no crash reports, no usage data. The project has no server.
 

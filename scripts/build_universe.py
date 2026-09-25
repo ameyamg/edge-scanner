@@ -8,8 +8,8 @@ Filters applied (all thresholds are tunable via CLI flags):
   2. Eligibility: tradable, not an ETF/fund/leveraged product, plain ticker
      (scanner/symbols.py, the same rule for every source)
   3. Price >= $15  (latest trade)
-  4. 20-day avg volume >= 5,000,000 shares/day  (daily bars)
-  5. 20-day avg dollar volume >= $50M/day  (avg_vol * price)
+  4. 20-day avg volume >= --min-avg-vol shares/day, off by default (daily bars)
+  5. 20-day avg dollar volume >= $150M/day  (avg_vol * price)
   6. ATR% (20-day avg daily range / price) >= 1%  (no upper ceiling)
 
 Market data (steps 3-6) comes from the provider: --provider, default the
@@ -214,10 +214,10 @@ def main() -> None:
                         help="starting symbol list (default: alpaca for the alpaca provider, nasdaq otherwise)")
     parser.add_argument("--min-price",         type=float, default=15.0,
                         help="Minimum last trade price (default: 15.0)")
-    parser.add_argument("--min-avg-vol",       type=int,   default=5_000_000,
-                        help="Minimum 20-day avg daily share volume (default: 5000000)")
-    parser.add_argument("--min-dollar-vol-m",  type=float, default=50.0,
-                        help="Minimum 20-day avg daily dollar volume in millions (default: 50)")
+    parser.add_argument("--min-avg-vol",       type=int,   default=0,
+                        help="Minimum 20-day avg daily share volume (default: 0, off)")
+    parser.add_argument("--min-dollar-vol-m",  type=float, default=150.0,
+                        help="Minimum 20-day avg daily dollar volume in millions (default: 150)")
     parser.add_argument("--min-atr-pct",       type=float, default=1.0,
                         help="Minimum ATR%% (default: 1.0)")
     parser.add_argument("--days",              type=int,   default=20,

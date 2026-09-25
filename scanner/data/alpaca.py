@@ -80,6 +80,33 @@ class AlpacaFeed(DataFeed):
         self._cache_dir.mkdir(parents=True, exist_ok=True)
         self._intraday_cache_dir.mkdir(parents=True, exist_ok=True)
 
+    def _cache_dir_for(self, timeframe: Timeframe) -> Path:
+        """Intraday cache directory for one bar size. 5-minute bars keep the
+        original directory; every other size gets a sibling (`5m_split` next to
+        `1m_split`). Keyed by symbol alone, a replay that fetched 1-minute bars
+        overwrote the 5-minute history the live scanner builds its 20-day volume
+        profile from, and relative volume then read five times too high."""
+        if timeframe == "5Min":
+            return self._intraday_cache_dir
+        tag = timeframe.lower().replace("min", "m").replace("hour", "h")
+        d = self._intraday_cache_dir.with_name(self._intraday_cache_dir.name.replace("5m", tag, 1))
+        if d == self._intraday_cache_dir:
+            d = self._intraday_cache_dir.with_name(self._intraday_cache_dir.name + "_" + tag)
+        d.mkdir(parents=True, exist_ok=True)
+        return d
+
+    @staticmethod
+    def _looks_like(df: pd.DataFrame, timeframe: Timeframe) -> bool:
+        """True when the cached bars have the spacing of `timeframe`. A cache
+        written by an older version under the wrong size is refetched."""
+        if df is None or len(df) < 3:
+            return True
+        want = {"1Min": 1, "5Min": 5, "15Min": 15, "30Min": 30, "1Hour": 60}.get(timeframe)
+        if want is None:
+            return True
+        step = (df.index[1:] - df.index[:-1]).min()
+        return step >= pd.Timedelta(minutes=want)
+
     def _is_cache_current(self, symbol: str, end: date, cache_dir: Path | None = None) -> bool:
         p = (cache_dir or self._cache_dir) / f"{symbol}.parquet"
         if not p.exists():
@@ -141,12 +168,15 @@ class AlpacaFeed(DataFeed):
         Daily and intraday caches live in separate directories so the same
         symbol name can be used as the cache key in both without conflict.
         """
-        if self._is_cache_current(symbol, end, self._intraday_cache_dir):
-            log.debug("%s %s: serving intraday bars from cache", symbol, timeframe)
-            return parquet.load(symbol, self._intraday_cache_dir)
+        cache_dir = self._cache_dir_for(timeframe)
+        if self._is_cache_current(symbol, end, cache_dir):
+            cached = parquet.load(symbol, cache_dir)
+            if self._looks_like(cached, timeframe):
+                log.debug("%s %s: serving intraday bars from cache", symbol, timeframe)
+                return cached
         log.debug("%s %s: fetching from Alpaca (%s -> %s)", symbol, timeframe, start, end)
         alpaca_tf = _ALPACA_TIMEFRAME[timeframe]
-        df = self._fetch_and_cache_bars(symbol, alpaca_tf, start, end, self._intraday_cache_dir)
+        df = self._fetch_and_cache_bars(symbol, alpaca_tf, start, end, cache_dir)
         log.info("%s %s: cached %d bars through %s", symbol, timeframe, len(df), end)
         return df
 
@@ -302,6 +332,7 @@ class AlpacaFeed(DataFeed):
                           start: date, end: date, cache_dir: Path,
                           batch: int, workers: int,
                           progress: Optional[Callable[[int, int], None]] = None,
+                          tf_name: Optional[Timeframe] = None,
                           ) -> dict[str, pd.DataFrame]:
         """Cache-aware batched fetch. Returns {symbol: DataFrame}."""
         out: dict[str, pd.DataFrame] = {}
@@ -309,8 +340,10 @@ class AlpacaFeed(DataFeed):
         for sym in symbols:
             if self._is_cache_current(sym, end, cache_dir):
                 try:
-                    out[sym] = parquet.load(sym, cache_dir)
-                    continue
+                    cached = parquet.load(sym, cache_dir)
+                    if tf_name is None or self._looks_like(cached, tf_name):
+                        out[sym] = cached
+                        continue
                 except Exception:
                     pass
             misses.append(sym)
@@ -382,8 +415,8 @@ class AlpacaFeed(DataFeed):
         each response manageable and failures cheap to retry.
         """
         return self._fetch_bars_multi(symbols, _ALPACA_TIMEFRAME[timeframe], start, end,
-                                      self._intraday_cache_dir, batch=50, workers=workers,
-                                      progress=progress)
+                                      self._cache_dir_for(timeframe), batch=50, workers=workers,
+                                      progress=progress, tf_name=timeframe)
 
     def get_todays_bars_multi(
         self,

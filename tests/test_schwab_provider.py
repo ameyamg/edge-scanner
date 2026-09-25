@@ -264,3 +264,15 @@ def test_cache_written_after_the_last_close_is_fresh_the_next_morning(tmp_path):
     os.utime(p, (datetime(2026, 9, 21, 17, 30, tzinfo=et).timestamp(),) * 2)     # rewritten Mon 17:30
     assert _fresh(p, df, date(2026, 9, 21))                      # Tuesday morning: nothing more to get
     assert _fresh(p, df, date(2026, 9, 20))                      # a Sunday rolls back to Friday
+
+
+def test_other_bar_sizes_never_replace_the_5_minute_cache(tmp_path):
+    # The 5-minute cache is keyed by symbol and feeds the RVOL profile. A
+    # 1-minute fetch cached under the same name read as 5-minute history and
+    # made RVOL about 5x too high.
+    c = _Client()
+    f = _feed(tmp_path, c)
+    f.get_historical_bars("AAA", "1Min", date(2026, 1, 5), date(2026, 1, 20))
+    assert not (tmp_path / "m" / "AAA.parquet").exists()
+    f.get_historical_bars("AAA", "5Min", date(2026, 1, 5), date(2026, 1, 20))
+    assert (tmp_path / "m" / "AAA.parquet").exists()
