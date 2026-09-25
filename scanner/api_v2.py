@@ -137,6 +137,41 @@ def session_now(now: Optional[datetime] = None) -> tuple[str, Optional[datetime]
     return "closed", at(nxt, 4, 0)
 
 
+def provider_label(feed) -> Optional[str]:
+    """'Alpaca SIP', 'Schwab', or the feed's own label (replay/demo feeds)."""
+    if feed is None:
+        return None
+    own = getattr(feed, "PROVIDER_LABEL", None)
+    if own:
+        return str(own)
+    name = type(feed).__name__
+    if name == "AlpacaFeed":
+        return "Alpaca " + (os.environ.get("ALPACA_FEED") or "sip").strip().upper()
+    if name == "SchwabFeed":
+        return "Schwab"
+    return name.removesuffix("Feed") or name
+
+
+def data_status(app_state) -> dict:
+    """Which provider, and whether bars are still arriving: the newest bar's
+    time and how many seconds ago any bar arrived."""
+    import time as _time
+    scanner = getattr(app_state, "scanner", None)
+    ts = getattr(scanner, "last_bar_ts", None)
+    wall = getattr(scanner, "last_bar_wall", None)
+    last_bar = None
+    if ts is not None:
+        try:
+            last_bar = pd.Timestamp(ts).tz_convert(_ET).isoformat(timespec="seconds")
+        except Exception:
+            last_bar = None
+    return {
+        "provider": provider_label(getattr(app_state, "feed", None)),
+        "last_bar_et": last_bar,
+        "last_bar_age_s": round(_time.time() - wall, 1) if isinstance(wall, (int, float)) else None,
+    }
+
+
 def state_to_snapshot(state) -> dict:
     price = price_of(state)
     return {
@@ -358,6 +393,7 @@ def register_v2_routes(app: FastAPI, app_state, **state_kw) -> V2State:
             "spy": spy,
             "next_change_et": nxt.isoformat(timespec="seconds") if nxt else None,
             "replay": replay,
+            "data": data_status(app_state),
         }))
 
     @app.get("/api/v2/toplists")

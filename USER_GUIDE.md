@@ -219,7 +219,7 @@ while dragging to turn off snapping.
 
 | Window | What it shows |
 |---|---|
-| **Scanner** | The live alert stream. Each window has its own filters: setups, direction, minimum score and symbols. Column picker, row tint, and a sound or text-to-speech per window |
+| **Scanner** | The live alert stream. Each window has its own filters: setups, direction, minimum score and symbols. Column picker, row tint, and a sound or text-to-speech per window. **Hold** freezes the list while you read it; new alerts are still collected and sound, the button counts them (Resume +3), and Resume shows them |
 | **Chart** | Intraday and daily candles with extended hours, VWAP, EMAs, daily SMAs, prior-day and premarket levels |
 | **Rankings** | Ranked lists: RVOL leaders, gainers and losers (from the close or the open), 5-minute movers, premarket gainers, losers and volume, and a new high / low of day stream |
 | **News** | Market-wide news, or news for the linked symbol |
@@ -256,9 +256,18 @@ RSS feeds. When a symbol has no recent news, it widens the search to the last 30
 change or disable the RSS sources, set `NEWS_RSS_SOURCES` in `.env`, for example `NEWS_RSS_SOURCES=yahoo`
 or `NEWS_RSS_SOURCES=` (empty) for Alpaca only.
 
+### The top bar
+
+- **ALERTS** is the connection to the scanner's alert stream, with today's alert counts.
+- The chip beside it is the **market data**: the provider (Alpaca SIP, Schwab), the newest bar and how
+  long ago it arrived. In regular hours it turns amber after 90 seconds without a bar and red after three
+  minutes: the alert connection can be fine while the data has stopped. The browser tab shows the provider
+  too, so two scanners side by side are easy to tell apart.
+- **⋯** holds the rarer controls: save the layout as a new screen, theme, hide the bar, fullscreen.
+
 ### Themes and shortcuts
 
-Two themes ship: a dark default and a light one. Shortcuts: `Ctrl+K` add a window, `Ctrl+L` lock or
+Two themes ship, a dark default and a light one, under **⋯** in the top bar. Shortcuts: `Ctrl+K` add a window, `Ctrl+L` lock or
 unlock the layout, `Ctrl+,` open Config, `Esc` close menus and dialogs.
 
 ---

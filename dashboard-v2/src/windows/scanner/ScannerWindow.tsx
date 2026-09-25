@@ -51,7 +51,9 @@ function useSetupOptions() {
 
 /** The filters you change most, on the window itself: setups, side, columns.
  *  Everything else (sources, score, sound) stays behind the gear. */
-function ScannerToolbar({ win, shown }: { win: ScannerConfig; shown: number }) {
+function ScannerToolbar({ win, shown, held, queued, onHold }: {
+  win: ScannerConfig; shown: number; held: boolean; queued: number; onHold(): void
+}) {
   const [pop, setPop] = useState<{ kind: 'setups' | 'columns'; at: DOMRect } | null>(null)
   const options = useSetupOptions()
   const update = (patch: Partial<ScannerConfig>) => useScreens.getState().updateWindow(win.id, patch)
@@ -79,6 +81,10 @@ function ScannerToolbar({ win, shown }: { win: ScannerConfig; shown: number }) {
         Columns <span className="faint">▾</span>
       </button>
       <span className="flex-spacer" />
+      <button className={`btn sm${held ? ' on attn' : ''}`} onClick={onHold}
+        title={held ? 'Show the alerts that arrived while held' : 'Freeze this list while you look at it. New alerts are still collected (and still sound), and counted here.'}>
+        {held ? <>▶ Resume{queued > 0 && <b className="mono"> +{queued}</b>}</> : '⏸ Hold'}
+      </button>
       <span className="faint mono" style={{ fontSize: 11 }}>{shown} shown</span>
       {pop?.kind === 'setups' && (
         <SettingsPopup title="Setups in this window" anchor={pop.at} onClose={() => setPop(null)}>
@@ -115,7 +121,17 @@ export function ScannerWindow({ win }: { win: ScannerConfig }) {
   const latest = useFeeds(s => s.latest)
   const globalMute = useSettings(s => s.globalMute)
   const hasSystem = useCapabilities(s => s.system_setups)
-  const rows = useMemo(() => filterAlerts(alerts, win, hasSystem), [alerts, win, hasSystem])
+  // Hold: the table shows the alerts as they were when Hold was pressed (still
+  // re-filtered if the window's filters change); new ones keep arriving in the
+  // store and are counted, then appear on Resume. Not saved with the layout.
+  const [held, setHeld] = useState<Alert[] | null>(null)
+  const rows = useMemo(() => filterAlerts(held ?? alerts, win, hasSystem), [held, alerts, win, hasSystem])
+  const queued = useMemo(() => {
+    if (!held) return 0
+    const cut = held.length ? alerts.indexOf(held[0]) : alerts.length
+    const fresh = cut < 0 ? alerts : alerts.slice(0, cut)
+    return filterAlerts(fresh, { ...win, maxRows: Number.MAX_SAFE_INTEGER }, hasSystem).length
+  }, [held, alerts, win, hasSystem])
   const columns = useMemo(() => win.columns.map(id => SCANNER_COLUMNS[id]).filter(Boolean), [win.columns])
   const mountSeq = useRef(lastSeq)
   const seenSeq = useRef(lastSeq)
@@ -145,7 +161,8 @@ export function ScannerWindow({ win }: { win: ScannerConfig }) {
 
   return (
     <div className="alert-wrap">
-    <ScannerToolbar win={win} shown={rows.length} />
+    <ScannerToolbar win={win} shown={rows.length} held={held != null} queued={queued}
+      onHold={() => setHeld(h => (h ? null : alerts))} />
     {selected && <SelectedStrip a={selected} linked={win.link !== 'none'} onClear={() => setSelected(null)} />}
     <VirtualTable<Alert>
       rows={rows}

@@ -241,6 +241,8 @@ export interface ClockInfo {
   next_change_et: string | null
   /** present when the backend is replaying a past session */
   replay?: { date: string; speed: number; cursor_et: string | null } | null
+  /** which provider, and whether bars are still arriving (older scanners omit it) */
+  data?: { provider: string | null; last_bar_et: string | null; last_bar_age_s: number | null } | null
 }
 
 export interface ToplistRow {

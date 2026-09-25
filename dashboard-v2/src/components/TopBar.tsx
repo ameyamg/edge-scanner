@@ -3,7 +3,7 @@ import { useScreens, SCREEN_TEMPLATES, type ScreenTemplate } from '../stores/scr
 import { useSettings } from '../stores/settingsStore'
 import { useFeeds, visibleSources, SOURCE_LABEL, SOURCE_SHORT } from '../stores/feedsStore'
 import { useCapabilities } from '../stores/capabilitiesStore'
-import type { WindowType } from '../types'
+import type { ClockInfo, WindowType } from '../types'
 import { THEMES } from '../lib/theme'
 import { nowET } from '../lib/time'
 import { audioReady, unlockAudio, playTone } from '../lib/audio'
@@ -21,12 +21,45 @@ function FeedDots() {
   const hasSystem = useCapabilities(s => s.system_setups)
   const cls = status === 'connected' ? 'ok' : status === 'reconnecting' ? 'warn' : 'bad'
   return (
-    <div className="row" style={{ gap: 8 }} title={`Unified alert feed (/ws/alerts): ${status}`}>
-      <span className="row" style={{ gap: 4, fontSize: 10.5 }}><span className={`dot ${cls}`} /><span className="faint">FEED</span></span>
+    <div className="row" style={{ gap: 8 }} title={`Alert connection to the scanner (/ws/alerts): ${status}. Whether market data is still arriving is the chip beside it.`}>
+      <span className="row" style={{ gap: 4, fontSize: 10.5 }}><span className={`dot ${cls}`} /><span className="faint">ALERTS</span></span>
       {visibleSources(hasSystem).map(f => (
         <span key={f} className="faint mono" style={{ fontSize: 10.5 }} title={`${SOURCE_LABEL[f]}: ${counts[f]} today`}>{SOURCE_SHORT[f]} {counts[f]}</span>
       ))}
     </div>
+  )
+}
+
+// The browser tab names the version and the provider, so two scanners side by
+// side (Alpaca and Schwab) are told apart without knowing their ports.
+const tabTitle = { version: '', provider: '' }
+function setTabTitle(part: Partial<typeof tabTitle>) {
+  Object.assign(tabTitle, part)
+  document.title = ['Edge Scanner' + (tabTitle.version ? ` v${tabTitle.version}` : ''), tabTitle.provider].filter(Boolean).join(' · ')
+}
+
+/** Provider, newest bar and its age. The alert socket being connected says
+ *  nothing about whether market data is still flowing; this does. Colored only
+ *  in regular hours, when every minute brings bars for a liquid universe. */
+function DataChip({ info }: { info: ClockInfo | null | undefined }) {
+  const d = info?.data
+  useEffect(() => { if (d?.provider) setTabTitle({ provider: d.provider }) }, [d?.provider])
+  if (!d || !d.provider) return null
+  const age = d.last_bar_age_s
+  const bar = d.last_bar_et ? d.last_bar_et.slice(11, 16) : null
+  const live = info?.session === 'rth' && !info?.replay
+  const level = !live || age == null ? '' : age <= 90 ? 'ok' : age <= 180 ? 'warn' : 'bad'
+  const ageText = age == null ? '' : age < 90 ? `${Math.round(age)}s` : age < 5400 ? `${Math.round(age / 60)}m` : `${Math.round(age / 3600)}h`
+  const title = bar
+    ? `Market data from ${d.provider}. Newest bar ${bar} ET, received ${ageText} ago.` +
+      (level === 'bad' ? ' No bars for over 3 minutes in regular hours: the data stream may have stopped.' : '')
+    : `Market data from ${d.provider}. No bars received yet.`
+  return (
+    <span className={`data-chip ${level}`} title={title}>
+      {level && <span className={`dot ${level}`} />}
+      <b>{d.provider}</b>
+      <span className="faint mono">{bar ? `bar ${bar} · ${ageText}` : 'waiting for bars'}</span>
+    </span>
   )
 }
 
@@ -41,7 +74,7 @@ function UpdateBadge() {
     let tries = 0
     const t = setInterval(() => {
       api.version().then(r => {
-        if (r.current) document.title = `Edge Scanner v${r.current}`
+        if (r.current) setTabTitle({ version: r.current })
         if (r.checked) { clearInterval(t); if (r.available && r.latest) setV({ latest: r.latest, url: r.url }) }
         else if (++tries > 20) clearInterval(t)
       }).catch(() => { if (++tries > 20) clearInterval(t) })
@@ -113,6 +146,35 @@ function ScreenSelector() {
   )
 }
 
+/** Things used rarely, out of the way so the bar fits at 1280px. */
+function MoreMenu() {
+  const [open, setOpen] = useState(false)
+  const activeId = useScreens(s => s.activeId)
+  const theme = useSettings(s => s.theme)
+  const setTheme = useSettings(s => s.setTheme)
+  const setMenuHidden = useSettings(s => s.setMenuHidden)
+  const close = () => setOpen(false)
+  return (
+    <div style={{ position: 'relative' }}>
+      <button className={`btn icon${open ? ' on' : ''}`} title="More: save layout, theme, hide this bar, fullscreen" aria-label="More" onClick={() => setOpen(o => !o)}>⋯</button>
+      <Menu open={open} onClose={close} right style={{ minWidth: 220 }}>
+        <MenuItem icon="💾" disabled={!activeId} onClick={() => {
+          close(); if (!activeId) return
+          const n = prompt('Save layout as', ''); if (n && n.trim()) useScreens.getState().duplicateScreen(activeId, n)
+        }}>Save layout as new screen…</MenuItem>
+        <MenuSep />
+        <MenuHead>Theme</MenuHead>
+        {THEMES.map(th => (
+          <MenuItem key={th.key} icon={th.short} on={theme === th.key} onClick={() => { setTheme(th.key); close() }}>{th.label}</MenuItem>
+        ))}
+        <MenuSep />
+        <MenuItem icon="▴" onClick={() => { setMenuHidden(true); close() }}>Hide this bar</MenuItem>
+        <MenuItem icon="⛶" onClick={() => { close(); if (document.fullscreenElement) document.exitFullscreen(); else document.documentElement.requestFullscreen?.() }}>Fullscreen</MenuItem>
+      </Menu>
+    </div>
+  )
+}
+
 export function AddWindowMenu({ open, onClose }: { open: boolean; onClose(): void }) {
   const addWindow = useScreens(s => s.addWindow)
   return (
@@ -134,8 +196,6 @@ export function TopBar() {
   const locked = useScreens(s => (s.activeId ? s.screens[s.activeId]?.locked : false) ?? false)
   const saveState = useScreens(s => s.saveState)
   const setLocked = useScreens(s => s.setLocked)
-  const theme = useSettings(s => s.theme)
-  const setTheme = useSettings(s => s.setTheme)
   const menuHidden = useSettings(s => s.menuHidden)
   const setMenuHidden = useSettings(s => s.setMenuHidden)
   const globalMute = useSettings(s => s.globalMute)
@@ -176,16 +236,16 @@ export function TopBar() {
       </button>
       <button className="btn" title="Config: setups, rankings and universe filters (Ctrl+,)" onClick={() => setCfgOpen(true)}>⚙ Config</button>
       {cfgOpen && <SetupsPanel onClose={() => setCfgOpen(false)} />}
-      <button className="btn" title="Save the current layout as a new named screen" disabled={!activeId}
-        onClick={() => { if (!activeId) return; const n = prompt('Save layout as', ''); if (n && n.trim()) useScreens.getState().duplicateScreen(activeId, n) }}>
-        💾 Save as…
-      </button>
-      <span className={saveState === 'error' ? 'down' : 'faint'} style={{ fontSize: 10.5, minWidth: 54 }}
-        title={saveState === 'error' ? 'Layout could not be saved to the scanner' : 'Layout changes save automatically'}>
-        {saveState === 'saving' ? 'saving…' : saveState === 'error' ? 'save failed' : 'auto-saved'}
-      </span>
+      {/* Only when there is something to say: layouts save automatically. */}
+      {saveState !== 'idle' && (
+        <span className={saveState === 'error' ? 'down' : 'faint'} style={{ fontSize: 10.5 }}
+          title={saveState === 'error' ? 'Layout could not be saved to the scanner' : 'Layout changes save automatically'}>
+          {saveState === 'saving' ? 'saving…' : 'save failed'}
+        </span>
+      )}
       <span className="flex-spacer" />
       <FeedDots />
+      <DataChip info={clockInfo} />
       <UpdateBadge />
       <span className="sep" />
       {clockInfo?.replay && <span className="chip static" style={{ color: 'var(--link-purple)', borderColor: 'var(--link-purple)' }} title="Replaying a past session">REPLAY {clockInfo.replay.date}</span>}
@@ -194,16 +254,11 @@ export function TopBar() {
       <span className="clock">{clock}<span className="clock-tz">ET</span></span>
       <span className="sep" />
       {!audioOn && (
-        <button className="btn sm" title="Browsers require a click before sound/voice can play" onClick={async () => { setAudioOn(await unlockAudio()); playTone('ping') }}>🔈 enable sound</button>
+        <button className="btn icon attn" title="Enable sound: browsers need one click before alerts can play sound or speak" aria-label="Enable sound"
+          onClick={async () => { setAudioOn(await unlockAudio()); playTone('ping') }}>🔈</button>
       )}
       <button className={`btn icon${globalMute ? ' on' : ''}`} title={globalMute ? 'Unmute all' : 'Mute all'} onClick={() => setGlobalMute(!globalMute)}>{globalMute ? '🔇' : '🔔'}</button>
-      <div className="row" style={{ gap: 2 }} title="Theme">
-        {THEMES.map(t => (
-          <button key={t.key} className={`btn sm${theme === t.key ? ' on' : ''}`} style={{ width: 26, padding: 0, justifyContent: 'center' }} title={t.label} onClick={() => setTheme(t.key)}>{t.short}</button>
-        ))}
-      </div>
-      <button className="btn icon" title="Hide menu" onClick={() => setMenuHidden(true)}>▴</button>
-      <button className="btn icon" title="Fullscreen" onClick={() => { if (document.fullscreenElement) document.exitFullscreen(); else document.documentElement.requestFullscreen?.() }}>⛶</button>
+      <MoreMenu />
     </header>
   )
 }

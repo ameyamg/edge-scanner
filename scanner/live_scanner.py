@@ -14,6 +14,7 @@ Bar routing inside _on_bar():
 from __future__ import annotations
 
 import logging
+import time
 from typing import Optional
 
 import pandas as pd
@@ -67,6 +68,11 @@ class LiveScanner:
         self._spy_state: Optional[SymbolState] = None
         self._latest_spy_bar: Optional[dict] = None
         self._regime: MarketRegime = MarketRegime.NEUTRAL
+        # Data freshness for the dashboard: the newest bar's own time, and the
+        # wall clock when a bar last arrived. A connected socket says nothing
+        # about whether bars are still flowing; these do.
+        self.last_bar_ts: Optional[pd.Timestamp] = None
+        self.last_bar_wall: Optional[float] = None
 
         # System setups from an optional engine plugin (attach_system). Every
         # evaluator runs inside this one process on the same states and bars,
@@ -384,6 +390,13 @@ class LiveScanner:
         symbol: str = bar.get("symbol", "")
         if not self._roll_session_if_new_day(bar):
             return
+        self.last_bar_wall = time.time()
+        try:
+            ts = pd.Timestamp(bar["timestamp"])
+            if self.last_bar_ts is None or ts > self.last_bar_ts:
+                self.last_bar_ts = ts
+        except Exception:
+            pass
 
         if symbol == "SPY":
             if self._spy_state is None:
