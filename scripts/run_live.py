@@ -595,9 +595,7 @@ def main() -> None:
     try:
         _api_socks = bind_sockets(args.host, args.port)
     except OSError as exc:
-        print(f"
-  {exc}
-", flush=True)
+        print(f"\n  {exc}\n", flush=True)
         sys.exit(1)
     _api_thread = threading.Thread(target=_api_server.run, kwargs={"sockets": _api_socks},
                                    daemon=True, name="api-server")
