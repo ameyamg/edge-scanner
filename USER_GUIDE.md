@@ -556,8 +556,16 @@ on Alpaca's consolidated tape, and a thinner feed changes what fires.
 
 ## 11. Troubleshooting
 
-**The dashboard page is blank or returns 404.** The dashboard has not been built. Run
-`npm --prefix dashboard-v2 install` and `npm --prefix dashboard-v2 run build`, then reload.
+**The dashboard page is blank or returns 404.** The dashboard has not been built, or the build is
+older than the code you updated to (the built files are not in git, so updating does not refresh them).
+Stop the scanner, run `npm --prefix dashboard-v2 install` and `npm --prefix dashboard-v2 run build`,
+start it again and reload with Ctrl+Shift+R. If the page stays dark and empty, open the browser
+console (F12) and reload: the red error names what failed.
+
+**Screens or setups I made are gone.** Everything you save lives under `data/` in the folder the
+scanner was started from: screens in `data/layouts/`, setups in `data/setups/custom/`. Starting from a
+different install folder, or with an empty `data/`, shows the starter screens and sample setups
+instead; nothing is deleted. Copy the files back from the old folder (or start from it) and reload.
 
 **Startup fails with an authorization or subscription error.** Check the keys in `.env`. If you do not
 have Alpaca's SIP subscription, set `ALPACA_FEED=iex`.
