@@ -220,6 +220,14 @@ the setup, the tests a change needs, and how to add a trigger, a condition or a 
 Please report security problems privately, as described in [SECURITY.md](SECURITY.md), not in a
 public issue.
 
+## More free tools from Tape to Edge
+
+Same rules for each one: free, MIT, runs on your own machine, and the build is on the [YouTube channel](https://www.youtube.com/@tapetoedge).
+
+- [Trading Journal AI](https://github.com/simonro/Trading-Journal-AI): a local-first journal. Import your broker CSV, get round-trip trades, KPIs and AI diary analysis.
+- [Edge GEX Lab](https://github.com/simonro/Edge-GEX-Lab): a live gamma exposure (GEX) map for SPY, QQQ, SPX, NDX and stocks, with walls, gamma flip and regime.
+- [AI Research Desk](https://github.com/simonro/ai-research-desk): three AI research teams debate one stock into swing and long-term calls.
+
 ## Who made this
 
 A day trader who wanted scans that match how he actually trades, and a dashboard that fits one
