@@ -23,7 +23,8 @@ class _Resp:
 
 
 def _candles(start: date, n: int):
-    return {"candles": [{"datetime": int(pd.Timestamp(start + timedelta(days=i), tz="UTC").timestamp() * 1000),
+    # Midnight Central, the way Schwab stamps daily candles.
+    return {"candles": [{"datetime": int(pd.Timestamp(start + timedelta(days=i), tz="America/Chicago").timestamp() * 1000),
                          "open": 10, "high": 11, "low": 9, "close": 10, "volume": 1000} for i in range(n)]}
 
 
@@ -333,3 +334,64 @@ def test_a_lower_chart_cap_on_a_small_universe_still_polls_the_overflow(monkeypa
         "code": 19, "msg": "max (CHART_EQUITY=200, DISCARDED=50)"}}]}))
     assert len(feed.streamed_symbols) == 200 and len(feed.polled_symbols) == 50
     assert {"schwab-quote-poll", "schwab-quote-bars"} <= set(started)
+
+
+def test_daily_bars_from_different_fetches_align_on_every_date(tmp_path):
+    """Schwab stamps daily candles at midnight Central but sometimes returns the
+    newest one at midnight Eastern, so SPY, a sector ETF and a stock fetched at
+    different times disagreed on that day's timestamp and SymbolState's inner
+    join dropped it. Every daily bar is stamped at midnight Eastern, like
+    Alpaca's cache, whether it comes from Schwab or from a file written before
+    the fix."""
+    from zoneinfo import ZoneInfo
+    from scanner.cache import parquet
+    from scanner.state import SymbolState
+
+    days = list(pd.bdate_range("2026-01-02", "2026-10-16"))          # spans both DST changes
+
+    def payload(last_stamped_eastern: bool):
+        out = []
+        for i, d in enumerate(days):
+            tz = "America/New_York" if last_stamped_eastern and i == len(days) - 1 else "America/Chicago"
+            px = 100 + i * 0.1
+            out.append({"datetime": int(pd.Timestamp(d.date(), tz=tz).timestamp() * 1000),
+                        "open": px, "high": px + 1, "low": px - 1, "close": px + 0.5, "volume": 1e6})
+        return {"candles": out}
+
+    class C:
+        calls: list = []
+
+        def price_history(self, symbol, **kw):
+            self.calls.append(symbol)
+            return _Resp(200, payload(last_stamped_eastern=(symbol == "SPY")))
+
+    start, end = date(2026, 1, 2), date(2026, 10, 16)
+    f = _feed(tmp_path, C())
+    spy = f.get_historical_daily("SPY", start, end)                  # newest bar at midnight Eastern
+    xlk = f.get_historical_daily("XLK", start, end)                  # all midnight Central
+
+    # A stock cached before the fix: raw Schwab stamps on disk, read back
+    # through the cache (written after the close, so it is fresh).
+    raw = SchwabFeed._candles_to_df(payload(last_stamped_eastern=False))
+    parquet.save("AAPL", raw, tmp_path / "d")
+    f._ended_daily.note("AAPL", end)
+    f._asked_daily.note("AAPL", start)
+    import os
+    after_close = pd.Timestamp("2026-10-16 18:00", tz="America/New_York").timestamp()
+    os.utime(tmp_path / "d" / "AAPL.parquet", (after_close, after_close))
+    calls_before = len(C.calls)
+    aapl = f.get_historical_daily("AAPL", start, end)
+    assert len(C.calls) == calls_before                              # came from the cache
+
+    et = ZoneInfo("America/New_York")
+    expected = pd.DatetimeIndex([pd.Timestamp(d.date(), tz=et) for d in days]).tz_convert("UTC")
+    for df in (spy, xlk, aapl):
+        assert df.index.equals(expected)
+        assert set(df.index.tz_convert(et).hour) == {0}
+
+    stock, s = aapl.align(spy, join="inner", axis=0)
+    s2, sec = aapl.align(xlk, join="inner", axis=0)
+    assert len(stock) == len(s2) == len(days)
+
+    state = SymbolState.from_history("AAPL", aapl, spy, sector_daily=xlk)
+    assert state.prior_close == pytest.approx(aapl["close"].iloc[-1])   # 2026-10-16, not 10-15
