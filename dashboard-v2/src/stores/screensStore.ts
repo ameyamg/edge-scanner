@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { ChartOverlays, GridItem, Screen, WindowConfig, WindowType } from '../types'
+import type { ChartConfig, ChartOverlays, GridItem, Screen, WindowConfig, WindowType } from '../types'
 import { api } from '../lib/api'
 import { id as newId } from '../lib/ids'
 import { WINDOW_SIZES, migrateScannerWindow, windowDefaults } from '../windows/defaults'
@@ -315,7 +315,9 @@ export const useScreens = create<ScreensState>()((set, get) => {
           minW: size.minW / W, minH: size.minH / H, ...(size.maxH ? { maxH: size.maxH / H } : {}),
         }
         const defaults = windowDefaults(type, wid)
-        const cfg = { ...defaults, ...(type === 'chart' && s.chartOverlays ? { overlays: s.chartOverlays } : {}), ...partial, id: wid, type } as WindowConfig
+        // The screen's saved indicators go over the built-in set, so one added after the save keeps its default.
+        const overlays = type === 'chart' && s.chartOverlays ? { overlays: { ...(defaults as ChartConfig).overlays, ...s.chartOverlays } } : {}
+        const cfg = { ...defaults, ...overlays, ...partial, id: wid, type } as WindowConfig
         return { ...s, layout: [...s.layout, item], windows: { ...s.windows, [wid]: cfg } }
       })
       return wid
