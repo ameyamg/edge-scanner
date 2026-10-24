@@ -138,8 +138,11 @@ class SymbolState:
         rrs_sector: Optional[float] = None
         if sector_daily is not None:
             s2, sec = daily_bars.align(sector_daily, join="inner", axis=0)
-            v = compute_rrs(s2, sec, D1_LENGTH).iloc[-1]
-            rrs_sector = None if pd.isna(v) else _scalar(v)
+            # No shared dates (a brand-new listing, or an empty ETF frame)
+            # leaves nothing to compare; treat it as no sector data.
+            if not s2.empty:
+                v = compute_rrs(s2, sec, D1_LENGTH).iloc[-1]
+                rrs_sector = None if pd.isna(v) else _scalar(v)
 
         # Chart quality score
         quality = compute_chart_quality(stock, ema8_series, atr_series)

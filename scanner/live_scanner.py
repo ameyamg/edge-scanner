@@ -166,13 +166,18 @@ class LiveScanner:
             sec_df = (sector_daily or {}).get(sector_sym) if sector_sym else None
             bars5m = (bars_5m or {}).get(sym)
 
-            self._states[sym] = SymbolState.from_history(
-                sym,
-                daily,
-                spy_daily,
-                sector_daily=sec_df,
-                bars_5m_history=bars5m,
-            )
+            # One symbol's bad history must not stop the whole scanner.
+            try:
+                self._states[sym] = SymbolState.from_history(
+                    sym,
+                    daily,
+                    spy_daily,
+                    sector_daily=sec_df,
+                    bars_5m_history=bars5m,
+                )
+            except Exception as exc:
+                log.warning("Warmup failed for %s (%s), skipping", sym, exc)
+                continue
             # Candle rings for the same symbol. seed_intraday fills 5/15/30/60
             # from the 5-min history; the 1- and 2-min rings are session-only by
             # design, so conditions on those timeframes have no baseline until
