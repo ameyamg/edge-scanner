@@ -28,7 +28,8 @@ multi-window browser dashboard.
 
 - **Python 3.11 to 3.14** (3.13 recommended). Python 3.15 is too new: some packages have no
   Windows build for it yet. It can stay installed; `setup.bat` picks 3.13 when both are there.
-- **Node.js 20 or newer** (to build the dashboard once).
+- **Node.js 22 LTS or newer** (20.19+ also works; to build the dashboard once). `setup.bat` offers to
+  install the current LTS when it finds an older one.
 - **An Alpaca account** (paper is fine) and its API keys. The scanner only reads market data; it never
   places orders.
 - **Market data.** Set `ALPACA_FEED` in `.env`:

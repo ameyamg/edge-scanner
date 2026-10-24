@@ -54,9 +54,40 @@ goto :fail
 echo Using:
 %PY% --version
 
+rem Node.js 20.19+, 22.13+ or 24+: the dashboard's build tools (Vite 8, ESLint 10) need it, and an
+rem older Node fails at step 4 with an engine or syntax error.
+set "NODE_OK=const [a,b]=process.versions.node.split('.').map(Number);process.exit((a===20&&b>=19)||(a===22&&b>=13)||a>=24?0:1)"
+where node >nul 2>nul && call node -e "%NODE_OK%" >nul 2>nul && goto :node_found
+
+rem Missing or too old: offer the current LTS. winget ships with Windows 10 and 11.
+where winget >nul 2>nul
+if errorlevel 1 goto :node_missing
+echo Node.js 20.19 or newer is needed to build the dashboard.
+where node >nul 2>nul && (
+    echo This machine has:
+    call node --version
+)
+echo Setup can install the current Node.js LTS for you. Windows will ask for permission.
+choice /C YN /M "Install Node.js LTS now"
+if errorlevel 2 goto :node_missing
+winget install --exact --id OpenJS.NodeJS.LTS --silent --accept-package-agreements --accept-source-agreements
+rem PATH in this window is not refreshed, so put the new install first.
+set "PATH=%ProgramFiles%\nodejs;%PATH%"
+call node -e "%NODE_OK%" >nul 2>nul && goto :node_found
+
+:node_missing
+echo Node.js 20.19 or newer is needed. The LTS version is recommended: https://nodejs.org/
+echo Install it, then run setup.bat again.
+where node >nul 2>nul && (
+    echo This machine has:
+    call node --version
+)
+goto :fail
+
+:node_found
 where npm >nul 2>nul
 if errorlevel 1 (
-    echo Node.js was not found. Install the LTS version from https://nodejs.org/ and run setup.bat again.
+    echo npm was not found next to Node.js. Reinstall the LTS version from https://nodejs.org/
     goto :fail
 )
 

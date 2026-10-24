@@ -5,6 +5,9 @@
   "description": "Edge Scanner dashboard: a multi-window web UI for live stock alerts, charts, rankings, news and setup configuration.",
   "license": "MIT",
   "type": "module",
+  "engines": {
+    "node": "^20.19.0 || ^22.13.0 || >=24"
+  },
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
