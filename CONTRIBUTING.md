@@ -28,7 +28,7 @@ These decide most review questions, so they are worth knowing before you start:
 
 ## Setting up
 
-Requirements: Python 3.11 or newer, Node.js 20 or newer, and an Alpaca account (paper is fine) or a
+Requirements: Python 3.11 to 3.14, Node.js 20 or newer, and an Alpaca account (paper is fine) or a
 Charles Schwab brokerage account for market data.
 
 On Windows, run `setup.bat` once, then `start_scanner.bat`. By hand:

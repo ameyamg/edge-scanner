@@ -26,7 +26,8 @@ multi-window browser dashboard.
 
 ## 1. Requirements
 
-- **Python 3.11 or newer.**
+- **Python 3.11 to 3.14** (3.13 recommended). Python 3.15 is too new: some packages have no
+  Windows build for it yet. It can stay installed; `setup.bat` picks 3.13 when both are there.
 - **Node.js 20 or newer** (to build the dashboard once).
 - **An Alpaca account** (paper is fine) and its API keys. The scanner only reads market data; it never
   places orders.
@@ -46,6 +47,11 @@ All times shown by the scanner are **US Eastern**.
 ## 2. First-Time Setup
 
 Do this once on a new machine.
+
+On Windows, `setup.bat` does steps 1 and 2 and creates `.env`, installing the packages into
+`.venv`. The launchers use that `.venv` by themselves. For the `python scripts/...` commands in
+this guide, run `.venv\Scripts\activate` in the terminal first (`source .venv/bin/activate` on
+macOS and Linux).
 
 ### Step 1: Install the Python packages
 
@@ -557,8 +563,16 @@ on Alpaca's consolidated tape, and a thinner feed changes what fires.
 
 ## 11. Troubleshooting
 
-**The dashboard page is blank or returns 404.** The dashboard has not been built. Run
-`npm --prefix dashboard-v2 install` and `npm --prefix dashboard-v2 run build`, then reload.
+**The dashboard page is blank or returns 404.** The dashboard has not been built, or the build is
+older than the code you updated to (the built files are not in git, so updating does not refresh them).
+Stop the scanner, run `npm --prefix dashboard-v2 install` and `npm --prefix dashboard-v2 run build`,
+start it again and reload with Ctrl+Shift+R. If the page stays dark and empty, open the browser
+console (F12) and reload: the red error names what failed.
+
+**Screens or setups I made are gone.** Everything you save lives under `data/` in the folder the
+scanner was started from: screens in `data/layouts/`, setups in `data/setups/custom/`. Starting from a
+different install folder, or with an empty `data/`, shows the starter screens and sample setups
+instead; nothing is deleted. Copy the files back from the old folder (or start from it) and reload.
 
 **Startup fails with an authorization or subscription error.** Check the keys in `.env`. If you do not
 have Alpaca's SIP subscription, set `ALPACA_FEED=iex`.
