@@ -23,17 +23,34 @@ if not defined PY (
         python -c "%VERSION_OK%" && set "PY=python"
     )
 )
-if not defined PY (
-    echo Python 3.11 to 3.14 is needed. Python 3.13 is recommended:
-    echo https://www.python.org/downloads/windows/
-    echo Tick "Add python.exe to PATH" in the installer, then run setup.bat again.
-    echo A newer Python can stay installed; setup picks 3.13 when both are there.
-    where python >nul 2>nul && (
-        echo This machine has:
-        python --version
-    )
-    goto :fail
+if defined PY goto :python_found
+
+rem None found: offer to install 3.13 for this Windows user. winget ships with Windows 10 and 11.
+where winget >nul 2>nul
+if errorlevel 1 goto :python_missing
+echo No Python 3.11 to 3.14 was found. Setup can install Python 3.13 for you, for this Windows
+echo user only. A newer Python already on this machine stays as it is.
+choice /C YN /M "Install Python 3.13 now"
+if errorlevel 2 goto :python_missing
+rem InstallLauncherAllUsers=0 keeps the py launcher per-user too, so no admin prompt is needed.
+winget install --exact --id Python.Python.3.13 --scope user --silent --accept-package-agreements --accept-source-agreements --custom "InstallLauncherAllUsers=0"
+rem PATH in this window is not refreshed, so use the installed python.exe by its path.
+set "PY313=%LOCALAPPDATA%\Programs\Python\Python313\python.exe"
+if exist "%PY313%" set PY="%PY313%"
+if defined PY goto :python_found
+
+:python_missing
+echo Python 3.11 to 3.14 is needed. Python 3.13 is recommended:
+echo https://www.python.org/downloads/windows/
+echo Tick "Add python.exe to PATH" in the installer, then run setup.bat again.
+echo A newer Python can stay installed; setup picks 3.13 when both are there.
+where python >nul 2>nul && (
+    echo This machine has:
+    python --version
 )
+goto :fail
+
+:python_found
 echo Using:
 %PY% --version
 
