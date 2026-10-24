@@ -17,6 +17,9 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    # requirements.txt keeps tested floors on purpose; only widen a range when a new
+    # release falls outside it, never raise a floor.
+    versioning-strategy: increase-if-necessary
     groups:
       scanner:
         patterns: ["*"]
