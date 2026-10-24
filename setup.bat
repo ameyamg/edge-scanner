@@ -6,18 +6,36 @@ cd /d "%~dp0"
 echo Edge Scanner setup
 echo.
 
-where python >nul 2>nul
-if errorlevel 1 (
-    echo Python was not found. Install Python 3.11 or newer from https://www.python.org/downloads/
-    echo and tick "Add python.exe to PATH" in the installer, then run setup.bat again.
+rem Python 3.11 to 3.14. A brand-new Python (3.15 in October 2026) has no Windows wheels yet for
+rem some packages (pyarrow, pyyaml), so pip tries to compile them and fails. The py launcher can
+rem pick a supported version when several are installed, whichever one is first on PATH.
+set "VERSION_OK=import sys; sys.exit(0 if (3, 11) <= sys.version_info[:2] <= (3, 14) else 1)"
+set "PY="
+where py >nul 2>nul
+if not errorlevel 1 (
+    for %%V in (3.13 3.12 3.14 3.11) do if not defined PY (
+        py -%%V -c "" >nul 2>nul && set "PY=py -%%V"
+    )
+)
+if not defined PY (
+    where python >nul 2>nul
+    if not errorlevel 1 (
+        python -c "%VERSION_OK%" && set "PY=python"
+    )
+)
+if not defined PY (
+    echo Python 3.11 to 3.14 is needed. Python 3.13 is recommended:
+    echo https://www.python.org/downloads/windows/
+    echo Tick "Add python.exe to PATH" in the installer, then run setup.bat again.
+    echo A newer Python can stay installed; setup picks 3.13 when both are there.
+    where python >nul 2>nul && (
+        echo This machine has:
+        python --version
+    )
     goto :fail
 )
-python -c "import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)"
-if errorlevel 1 (
-    echo Python 3.11 or newer is needed. This machine has:
-    python --version
-    goto :fail
-)
+echo Using:
+%PY% --version
 
 where npm >nul 2>nul
 if errorlevel 1 (
@@ -26,8 +44,16 @@ if errorlevel 1 (
 )
 
 echo [1/5] Creating the Python environment in .venv
+if exist ".venv\Scripts\python.exe" (
+    rem A .venv left by an earlier run on an unsupported Python is rebuilt.
+    ".venv\Scripts\python.exe" -c "%VERSION_OK%" >nul 2>nul
+    if errorlevel 1 (
+        echo       Rebuilding .venv, it was made with an unsupported Python
+        rmdir /s /q .venv
+    )
+)
 if not exist ".venv\Scripts\python.exe" (
-    python -m venv .venv
+    %PY% -m venv .venv
     if errorlevel 1 goto :fail
 )
 
@@ -71,7 +97,7 @@ echo and open http://localhost:7777
 echo.
 echo Every install starts empty: no watchlists, no saved screens of your own and no alert
 echo history. The first start downloads market history and can take 10 to 20 minutes.
-echo Optional sample setups: python scripts\install_setup_library.py
+echo Optional sample setups: .venv\Scripts\python scripts\install_setup_library.py
 echo.
 pause
 exit /b 0

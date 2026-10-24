@@ -22,7 +22,11 @@ set "HISTORY_DAYS=380"
 
 REM Anything passed to this script is appended, so extra flags still work:
 REM   start_scanner.bat --log-level INFO
-python scripts/run_live.py %UNIVERSE_ARG% --history-days %HISTORY_DAYS% %*
+REM setup.bat installs the packages into .venv; a hand-made setup may use the global python.
+set "PY=python"
+if exist ".venv\Scripts\python.exe" set "PY=.venv\Scripts\python.exe"
+
+"%PY%" scripts/run_live.py %UNIVERSE_ARG% --history-days %HISTORY_DAYS% %*
 
 echo.
 echo === Scanner exited ===

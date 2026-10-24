@@ -91,7 +91,8 @@ runs on. Alerts, parameters, a plain-English summary and a per-stock check are t
 
 ## Requirements
 
-- Python 3.11 or newer, and Node.js 20 or newer to build the dashboard
+- Python 3.11 to 3.14 (3.13 recommended; Python 3.15 is too new for some packages yet), and
+  Node.js 20 or newer to build the dashboard
 - Market data, either:
   - an [Alpaca](https://alpaca.markets) account (paper is fine). The default `ALPACA_FEED=sip`
     needs their paid market-data plan. The free `ALPACA_FEED=iex` works, but it is one exchange, so
