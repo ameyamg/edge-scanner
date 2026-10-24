@@ -26,7 +26,8 @@ multi-window browser dashboard.
 
 ## 1. Requirements
 
-- **Python 3.11 or newer.**
+- **Python 3.11 to 3.14** (3.13 recommended). Python 3.15 is too new: some packages have no
+  Windows build for it yet. It can stay installed; `setup.bat` picks 3.13 when both are there.
 - **Node.js 20 or newer** (to build the dashboard once).
 - **An Alpaca account** (paper is fine) and its API keys. The scanner only reads market data; it never
   places orders.
@@ -45,6 +46,11 @@ All times shown by the scanner are **US Eastern**.
 ## 2. First-Time Setup
 
 Do this once on a new machine.
+
+On Windows, `setup.bat` does steps 1 and 2 and creates `.env`, installing the packages into
+`.venv`. The launchers use that `.venv` by themselves. For the `python scripts/...` commands in
+this guide, run `.venv\Scripts\activate` in the terminal first (`source .venv/bin/activate` on
+macOS and Linux).
 
 ### Step 1: Install the Python packages
 

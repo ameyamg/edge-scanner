@@ -17,7 +17,11 @@ if exist "data\universe_all.csv" set "UNIVERSE_ARG=--universe data/universe_all.
 
 set "HISTORY_DAYS=380"
 
-python scripts/run_live.py --feed schwab --port 7787 --alerts-dir data/alerts_schwab %UNIVERSE_ARG% --history-days %HISTORY_DAYS% %*
+REM setup.bat installs the packages into .venv; a hand-made setup may use the global python.
+set "PY=python"
+if exist ".venv\Scripts\python.exe" set "PY=.venv\Scripts\python.exe"
+
+"%PY%" scripts/run_live.py --feed schwab --port 7787 --alerts-dir data/alerts_schwab %UNIVERSE_ARG% --history-days %HISTORY_DAYS% %*
 
 echo.
 echo === Schwab scanner exited ===
