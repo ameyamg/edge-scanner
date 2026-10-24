@@ -136,6 +136,32 @@ def _covers(df: pd.DataFrame, start: date, slack_days: int = 6) -> bool:
     return (first - start).days <= slack_days
 
 
+def normalize_daily_index(df: pd.DataFrame) -> pd.DataFrame:
+    """Stamp every daily bar at midnight America/New_York (in UTC), the same
+    convention as Alpaca's daily cache.
+
+    Schwab stamps daily candles at midnight Central (05:00/06:00 UTC), except
+    that the newest bar sometimes comes back at midnight Eastern (04:00 UTC).
+    SymbolState aligns a stock against SPY and its sector ETF with an inner
+    join, so one day stamped differently in two files was dropped silently and
+    prior levels, ATR and RRS came from a stale day. Midnight Central and
+    Eastern both fall on the trading date in Eastern time, so that date is the
+    key. Two bars on one date (never seen, but cheap to guard): the later wins.
+    """
+    if df is None or df.empty:
+        return df
+    idx = pd.DatetimeIndex(df.index)
+    if idx.tz is None:
+        idx = idx.tz_localize("UTC")
+    days = idx.tz_convert(_ET).normalize().tz_convert("UTC")
+    if days.equals(df.index):
+        return df
+    out = df.copy()
+    out.index = days.rename(df.index.name or "timestamp")
+    out = out[~out.index.duplicated(keep="last")]
+    return out.sort_index()
+
+
 def _num(v) -> float | None:
     """A quote field as a float, or None when it is missing or not a number."""
     try:
@@ -361,7 +387,8 @@ class SchwabFeed(DataFeed):
             endDate=datetime.combine(end, datetime.max.time()),
             needExtendedHoursData=(ftype == "minute"),   # premarket levels need it
         ))
-        return self._candles_to_df(resp.json())
+        df = self._candles_to_df(resp.json())
+        return normalize_daily_index(df) if timeframe == "Day" else df
 
     @staticmethod
     def _request(call):
@@ -389,7 +416,9 @@ class SchwabFeed(DataFeed):
         # build and the warmup ask for different spans on the same morning.
         p = self._cache_dir / f"{symbol}.parquet"
         if p.exists():
-            cached = parquet.load(symbol, self._cache_dir)
+            # Files written before normalize_daily_index are fixed on read, not
+            # rewritten: a rewrite moves the mtime that _fresh relies on.
+            cached = normalize_daily_index(parquet.load(symbol, self._cache_dir))
             if (_fresh(p, cached, end, self._ended_daily.end(symbol))
                     and (_covers(cached, start) or self._asked_daily.covers(symbol, start))):
                 return cached

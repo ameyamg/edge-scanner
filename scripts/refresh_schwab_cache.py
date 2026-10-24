@@ -46,9 +46,12 @@ def main() -> int:
 
     log_dir = Path("data/schwab")
     log_dir.mkdir(parents=True, exist_ok=True)
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s",
-                        handlers=[logging.FileHandler(log_dir / "refresh.log", encoding="utf-8"),
-                                  logging.StreamHandler(sys.stdout)])
+    # The scheduled task runs this under pythonw (no console window to close by
+    # accident), where sys.stdout is None: log to the file only then.
+    handlers: list[logging.Handler] = [logging.FileHandler(log_dir / "refresh.log", encoding="utf-8")]
+    if sys.stdout is not None:
+        handlers.append(logging.StreamHandler(sys.stdout))
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s", handlers=handlers)
     log = logging.getLogger("refresh")
 
     universe = Path(args.universe) if args.universe else \
