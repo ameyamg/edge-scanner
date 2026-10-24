@@ -9,7 +9,7 @@ Filters applied (all thresholds are tunable via CLI flags):
      (scanner/symbols.py, the same rule for every source)
   3. Price >= $15  (latest trade)
   4. 20-day avg volume >= --min-avg-vol shares/day, off by default (daily bars)
-  5. 20-day avg dollar volume >= $150M/day  (avg_vol * price); $3.75M on
+  5. 20-day avg dollar volume >= $150M/day  (avg_vol * price); $7.50M on
      Alpaca's free IEX feed, which sees only a few percent of the volume
   6. ATR% (20-day avg daily range / price) >= 1%  (no upper ceiling)
 
@@ -51,11 +51,12 @@ _MIN_SYMBOLS = 100
 _WARMUP_SPAN_DAYS = 400
 
 _DOLLAR_VOL_M = 150.0
-# Alpaca's free IEX feed is one exchange, about 2.5% of consolidated volume, so
-# every volume it reports is roughly 40x lower than on SIP. With the SIP floor
-# nearly nothing passed and a first start on IEX could not build a universe
-# (discussion #19). The floor is scaled to the share the feed sees.
-_IEX_VOLUME_SHARE = 0.025
+# Alpaca's free IEX feed is one exchange, about 5% of consolidated dollar volume
+# (measured 2026-10-24 over 20 days: median 5.2% across 2,780 symbols, 5.5% among
+# the $150M+ names), so every volume it reports is roughly 20x lower than on SIP.
+# With the SIP floor nearly nothing passed and a first start on IEX could not
+# build a universe (discussion #19). The floor is scaled to the share the feed sees.
+_IEX_VOLUME_SHARE = 0.05
 
 
 def default_provider() -> str:
@@ -233,7 +234,7 @@ def main() -> None:
                         help="Minimum 20-day avg daily share volume (default: 0, off)")
     parser.add_argument("--min-dollar-vol-m",  type=float, default=None,
                         help="Minimum 20-day avg daily dollar volume in millions "
-                             "(default: 150, or 3.75 on Alpaca's IEX feed)")
+                             "(default: 150, or 7.5 on Alpaca's IEX feed)")
     parser.add_argument("--min-atr-pct",       type=float, default=1.0,
                         help="Minimum ATR%% (default: 1.0)")
     parser.add_argument("--days",              type=int,   default=20,

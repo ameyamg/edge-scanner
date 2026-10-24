@@ -36,7 +36,7 @@ multi-window browser dashboard.
     subscription (Algo Trader Plus).
   - `ALPACA_FEED=iex` is free, but it is a single exchange, so volume and relative volume read far lower
     and volume-based setups fire much less. All default thresholds were set on SIP data; the universe
-    builder scales its dollar-volume floor down to match (from $150M to $3.75M a day).
+    builder scales its dollar-volume floor down to match (from $150M to $7.50M a day).
 - Windows, macOS or Linux. Launchers are included for both: `start_scanner.bat` and
   `restart_scanner.bat` on Windows, `start_scanner.sh` on macOS and Linux.
 
@@ -428,7 +428,7 @@ python scripts/build_universe.py --out data/universe_wide.csv --min-price 5 --mi
 | `--out` | `data/universe.csv` | Output CSV |
 | `--min-price` | `15.0` | Minimum last price ($) |
 | `--min-avg-vol` | `0` (off) | Minimum 20-day average daily share volume |
-| `--min-dollar-vol-m` | `150.0`, or `3.75` with `ALPACA_FEED=iex` | Minimum 20-day average daily dollar volume (millions) |
+| `--min-dollar-vol-m` | `150.0`, or `7.5` with `ALPACA_FEED=iex` | Minimum 20-day average daily dollar volume (millions) |
 | `--min-atr-pct` | `1.0` | Minimum ATR% |
 | `--days` | `20` | Trading days used for the volume and ATR averages |
 
